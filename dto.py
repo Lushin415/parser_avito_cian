@@ -45,3 +45,42 @@ class AvitoConfig:
     save_xlsx: bool = True
     use_webdriver: bool = True
 
+
+@dataclass
+class CianConfig:
+    """Конфигурация для парсера Циан"""
+    urls: List[str]
+    deal_type: str = "rent_long"  # "rent_long" или "sale"
+    location: str = "Москва"
+
+    # Фильтры
+    keys_word_white_list: List[str] = field(default_factory=list)
+    keys_word_black_list: List[str] = field(default_factory=list)
+    seller_black_list: List[str] = field(default_factory=list)
+    max_price: int = 999_999_999
+    min_price: int = 0
+    min_area: int = 0  # НОВОЕ - минимальная площадь
+    max_area: int = 999_999  # НОВОЕ - максимальная площадь
+    geo: Optional[str] = None
+    max_age: int = 0  # в секундах, 0 = не проверять
+
+    # Настройки парсинга
+    count: int = 1  # количество страниц
+    pause_general: int = 60
+    pause_between_links: int = 5
+    max_count_of_retry: int = 5
+    use_webdriver: bool = True
+
+    # Прокси
+    proxy_string: Optional[str] = None
+    proxy_change_url: Optional[str] = None
+
+    # Уведомления (используем общие с Avito)
+    tg_token: Optional[str] = None
+    tg_chat_id: List[str] = None
+    vk_token: Optional[str] = None
+    vk_user_id: List[str] = None
+
+    # Сохранение
+    save_xlsx: bool = True
+    one_time_start: bool = False

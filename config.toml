@@ -10,7 +10,7 @@ count = 1
 keys_word_white_list = []
 keys_word_black_list = []
 seller_black_list = []
-max_price = 9000
+max_price = 100000
 min_price = 1000
 geo = ""
 proxy_string = ""
@@ -20,9 +20,66 @@ pause_between_links = 2
 max_age = 0
 max_count_of_retry = 5
 ignore_reserv = false
-ignore_promotion = false
-one_time_start = false
-one_file_for_link = false
-parse_views = false
-save_xlsx = false
+ignore_promotion = true
+one_time_start = true
+one_file_for_link = true
+parse_views = true
+save_xlsx = true
 use_webdriver = true
+
+[cian]
+# Ссылки для парсинга (коммерческая недвижимость в аренду)
+urls = [
+    "https://www.cian.ru/cat.php?deal_type=rent&engine_version=2&offer_type=offices&region=1&type=4",
+]
+
+# Тип сделки: "rent_long" (долгосрочная аренда) или "sale" (продажа)
+deal_type = "rent_long"
+
+# Город
+location = "Москва"
+
+# Количество страниц для парсинга
+count = 3
+
+# Фильтры
+keys_word_white_list = ["коммерческ", "офис", "торговое"]
+keys_word_black_list = ["квартира", "студия"]
+seller_black_list = []
+
+# Цена (в рублях)
+max_price = 500000
+min_price = 30000
+
+# Площадь (в кв.м) - НОВОЕ
+min_area = 50
+max_area = 300
+
+# География (если нужна фильтрация по району)
+geo = ""
+
+# Максимальный возраст объявления в секундах (0 = не проверять)
+max_age = 0
+
+# Настройки парсинга
+pause_general = 60
+pause_between_links = 3
+max_count_of_retry = 5
+
+# Использовать браузер для обхода блокировок
+use_webdriver = true
+
+# Прокси (если нужно)
+proxy_string = ""
+proxy_change_url = ""
+
+# Уведомления (используются общие с [avito])
+# Если нужны отдельные - раскомментируй и заполни:
+tg_token = ""
+tg_chat_id = []
+# vk_token = ""
+# vk_user_id = []
+
+# Сохранение результатов
+save_xlsx = true
+one_time_start = false
