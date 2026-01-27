@@ -408,16 +408,15 @@ class CianParser:
         return f"result/cian_{self.config.location.lower()}.xlsx"
 
     def __save_data(self, ads: list[CianItem]) -> None:
-        """Сохранение в Excel"""
-        if not self.config.save_xlsx:
-            return
-
+        """Сохраняет результат в файл"""
         try:
-            # TODO: Адаптировать XLSXHandler для CianItem
-            # self.xlsx_handler.append_data_from_page(ads)
-            logger.info(f"Сохранено {len(ads)} объявлений")
+            logger.info(f"📊 Вызван __save_data с {len(ads)} объявлениями")  # ← ДОБАВЬ
+            self.xlsx_handler.append_data_from_page(ads=ads)
+            logger.info("✅ Сохранение в Excel завершено")  # ← ДОБАВЬ
         except Exception as err:
-            logger.error(f"Ошибка сохранения в Excel: {err}")
+            logger.error(f"❌ При сохранении в Excel ошибка: {err}")
+            import traceback
+            logger.error(traceback.format_exc())  # ← ДОБАВЬ (полный стек ошибки)
 
     def __save_viewed(self, ads: list[CianItem]) -> None:
         """Сохранение просмотренных объявлений в БД"""
@@ -516,6 +515,7 @@ class CianParser:
                         pass
 
                 if filtered_ads:
+                    logger.info(f"💾 Сохраняю {len(filtered_ads)} объявлений")
                     self.__save_viewed(ads=filtered_ads)
                     self.__save_data(ads=filtered_ads)
 
