@@ -11,10 +11,12 @@ class CianAuthor(BaseModel):
 class CianLocation(BaseModel):
     """Локация объявления"""
     district: str = ""
+    district_okrug: str = ""
     underground: str = ""  # метро
+    metro_remoteness: str = ""
     street: str = ""
     house_number: str = ""
-
+    full_address: str = ""
 
 class CianPrice(BaseModel):
     """Цена"""

@@ -75,8 +75,8 @@ proxy_change_url = ""
 
 # Уведомления (используются общие с [avito])
 # Если нужны отдельные - раскомментируй и заполни:
-tg_token = ""
-tg_chat_id = []
+tg_token = "8374925023:AAG9QwKAfXnwDZ4ZvtjP6zaoaqkEXeZn6p8"
+tg_chat_id = [338908929]
 # vk_token = ""
 # vk_user_id = []
 
