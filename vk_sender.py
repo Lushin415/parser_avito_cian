@@ -5,6 +5,8 @@ import re
 from loguru import logger
 
 from models import Item
+from cian_models import CianItem
+from typing import Union
 
 
 class SendAdToVK:
@@ -24,51 +26,83 @@ class SendAdToVK:
         return re.sub(r'([_\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
     @staticmethod
-    def get_first_image(ad: Item):
-        def get_largest_image_url(img):
-            best_key = max(
-                img.root.keys(),
-                key=lambda k: int(k.split("x")[0]) * int(k.split("x")[1])
-            )
-            return str(img.root[best_key])
+    def get_first_image(ad: Union[Item, CianItem]):
+        """Получает первое изображение из объявления"""
+        # Для Avito
+        if isinstance(ad, Item):
+            if not ad.images:
+                return None
 
-        images_urls = [get_largest_image_url(img) for img in ad.images]
-        if images_urls:
-            return images_urls[0]
+            def get_largest_image_url(img):
+                best_key = max(
+                    img.root.keys(),
+                    key=lambda k: int(k.split("x")[0]) * int(k.split("x")[1])
+                )
+                return str(img.root[best_key])
+
+            images_urls = [get_largest_image_url(img) for img in ad.images]
+            if images_urls:
+                return images_urls[0]
+
+        # Для Cian - изображений в списках нет
+        return None
 
     @staticmethod
-    def format_ad(ad: Item) -> str:
-        """Форматирует объявление в простой текст для VK (без Markdown)"""
+    def format_ad(ad: Union[Item, CianItem]) -> str:
+        """Форматирует объявление для VK (простой текст, поддерживает Avito и Cian)"""
+
         def clean(text: str) -> str:
             if not text:
                 return ""
             return str(text).replace("\xa0", " ")
 
-        price = clean(getattr(ad, "priceDetailed", {}).get("value", "") if isinstance(getattr(ad, "priceDetailed", None),
-                                                                                    dict) else getattr(ad.priceDetailed,
-                                                                                                       "value",
-                                                                                                       getattr(ad,
-                                                                                                               "priceDetailed",
-                                                                                                               "")))
-        title = clean(getattr(ad, "title", ""))
-        short_url = f"https://avito.ru/{getattr(ad, 'id', '')}"
-        seller = clean(str(getattr(ad, "sellerId", ""))) if getattr(ad, "sellerId", None) else ""
+        # Определяем источник и извлекаем данные
+        if isinstance(ad, Item):  # Avito
+            price = clean(str(ad.priceDetailed.value)) if ad.priceDetailed else ""
+            title = clean(ad.title) if ad.title else ""
+            url = f"https://avito.ru/{ad.urlPath}" if ad.urlPath else ""
+            seller = clean(str(ad.sellerId)) if ad.sellerId else ""
+            is_promoted = getattr(ad, "isPromotion", False)
+            source = "🔵 Avito"
 
+        elif isinstance(ad, CianItem):  # Cian
+            price = clean(str(ad.price.value)) if ad.price.value else ""
+            title = clean(ad.title) if ad.title else ""
+            url = ad.url
+            seller = clean(ad.author.name) if ad.author.name else ""
+            is_promoted = False
+            source = "🟢 Cian"
+        else:
+            return "Неизвестный тип объявления"
+
+        # Формируем сообщение
         parts = []
+
+        # Источник
+        parts.append(source)
+
+        # Цена
         if price:
-            price_part = f"💰 {price}"
-            if getattr(ad, "isPromotion", False):
+            price_part = f"💰 {price} руб/мес"
+            if is_promoted:
                 price_part += " 🔥"
             parts.append(price_part)
 
+        # Название
         if title:
             parts.append(f"📦 {title}")
 
+        # Площадь (только для Cian)
+        if isinstance(ad, CianItem) and ad.total_meters > 0:
+            parts.append(f"📐 Площадь: {ad.total_meters} м²")
+
+        # Продавец
         if seller:
             parts.append(f"👤 Продавец: {seller}")
 
-        if short_url:
-            parts.append(f"🔗 {short_url}")
+        # URL
+        if url:
+            parts.append(f"🔗 {url}")
 
         message = "\n".join(parts)
         return message
@@ -128,12 +162,14 @@ class SendAdToVK:
             logger.warning(f"Error uploading photo to VK: {e}")
             return None
 
-    def __send_to_vk(self, user_id: str | int, ad: Item = None, msg: str = None):
+    def __send_to_vk(self, user_id: str | int, ad: Union[Item, CianItem] = None, msg: str = None):
+        """Отправляет сообщение в VK"""
         headers = {
             "Authorization": f"Bearer {self.vk_token}"
         }
 
         if msg:
+            # Текстовое сообщение
             payload = {
                 "domain": user_id,
                 "random_id": 0,
@@ -142,6 +178,7 @@ class SendAdToVK:
             }
             return requests.post(self.api_url, headers=headers, data=payload)
 
+        # Объявление
         message = self.format_ad(ad)
         _image_url = self.get_first_image(ad=ad)
 
@@ -174,7 +211,6 @@ class SendAdToVK:
                     error_code = body["error"].get("error_code", 0)
                     logger.warning(f"VK API error {error_code}: {error_msg}")
 
-
                     if attempt < self.max_retries:
                         time.sleep(self.retry_delay)
                         continue
@@ -190,6 +226,7 @@ class SendAdToVK:
                 else:
                     logger.debug("Не удалось отправить сообщение после всех попыток.")
 
-    def send_to_vk(self, ad: Item = None, msg: str = None):
+    def send_to_vk(self, ad: Union[Item, CianItem] = None, msg: str = None):
+        """Отправляет объявление или сообщение всем получателям"""
         for user_id in self.user_id:
             self.__send_to_vk(user_id=user_id, ad=ad, msg=msg)

@@ -53,6 +53,17 @@ class CianParser:
             return SendAdToVK(vk_token=self.config.vk_token, user_id=self.config.vk_user_id)
         return None
 
+    def _send_to_tg(self, ads: list[CianItem]) -> None:
+        """Отправляет объявления в Telegram"""
+        for ad in ads:
+            self.tg_handler.send_to_tg(ad=ad)
+
+    def _send_to_vk(self, ads: list[CianItem]) -> None:
+        """Отправляет объявления в VK"""
+        for ad in ads:
+            self.vk_handler.send_to_vk(ad=ad)
+            time.sleep(1)
+
     def get_proxy_obj(self) -> Proxy | None:
         if all([self.config.proxy_string, self.config.proxy_change_url]):
             return Proxy(
@@ -496,14 +507,12 @@ class CianParser:
                 # Отправляем уведомления
                 if self.tg_handler and not self.config.one_time_start:
                     for ad in filtered_ads:
-                        # TODO: Адаптировать формат для Циан
-                        # self.tg_handler.send_to_tg(ad=ad)
+                        self.tg_handler.send_to_tg(ad=ad)
                         pass
 
                 if self.vk_handler and not self.config.one_time_start:
                     for ad in filtered_ads:
-                        # TODO: Адаптировать формат для Циан
-                        # self.vk_handler.send_to_vk(ad=ad)
+                        self.vk_handler.send_to_vk(ad=ad)
                         pass
 
                 if filtered_ads:
