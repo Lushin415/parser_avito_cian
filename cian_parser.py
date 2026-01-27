@@ -390,11 +390,41 @@ class CianParser:
     def __save_viewed(self, ads: list[CianItem]) -> None:
         """Сохранение просмотренных объявлений в БД"""
         try:
-            # TODO: Адаптировать для CianItem
-            # self.db_handler.add_record_from_page(ads)
-            logger.info(f"Сохранено {len(ads)} в БД")
+            # Конвертируем CianItem в формат для БД
+            records = [
+                self._convert_cian_to_db_format(ad)
+                for ad in ads
+            ]
+            records = [r for r in records if r is not None]  # Убираем None
+
+            # Сохраняем
+            if records:
+                import sqlite3
+                with sqlite3.connect(self.db_handler.db_name) as conn:
+                    cursor = conn.cursor()
+                    cursor.executemany(
+                        "INSERT OR REPLACE INTO viewed (id, price) VALUES (?, ?)",
+                        records
+                    )
+                    conn.commit()
+                logger.info(f"Сохранено {len(records)} в БД")
+            else:
+                logger.info("Нечего сохранять в БД")
+
         except Exception as err:
             logger.error(f"Ошибка сохранения в БД: {err}")
+
+    def _convert_cian_to_db_format(self, ad: CianItem) -> tuple | None:
+        """Конвертирует CianItem в формат для БД (id, price)"""
+        try:
+            if not ad.price or ad.price.value <= 0:
+                return None
+
+            ad_id = int(ad.id) if ad.id.isdigit() else abs(hash(ad.id))
+            return (ad_id, ad.price.value)
+        except Exception as e:
+            logger.error(f"Ошибка конвертации объявления {ad.id}: {e}")
+            return None
 
     def get_next_page_url(self, url: str) -> str:
         """Формирует URL следующей страницы"""
