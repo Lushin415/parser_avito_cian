@@ -211,6 +211,15 @@ class CianParser:
     def parse_single_offer(self, offer) -> CianItem | None:
         """Парсинг одного объявления коммерческой недвижимости"""
         try:
+            # Импортируем функции из helpers
+            from cian_helpers import (
+                parse_author,
+                parse_location,
+                parse_description,
+                extract_price_from_title,
+                extract_area_from_title
+            )
+
             # Ищем заголовок и ссылку
             title_link = offer.select_one("a[data-name='CommercialTitle']")
             if not title_link:
@@ -226,11 +235,11 @@ class CianParser:
             # ID из URL
             ad_id = self._extract_id_from_url(url)
 
-            # Парсим цену из заголовка (например: "за 720 000 руб./мес.")
-            price_value = self._extract_price_from_title(title)
+            # Парсим цену из заголовка
+            price_value = extract_price_from_title(title)
 
-            # Парсим площадь из заголовка (например: "209,7 м²")
-            total_meters = self._extract_area_from_title(title)
+            # Парсим площадь из заголовка
+            total_meters = extract_area_from_title(title)
 
             # Создаём объект цены
             from cian_models import CianPrice
@@ -238,6 +247,15 @@ class CianParser:
                 value=price_value,
                 price_per_month=price_value if self.config.deal_type == "rent_long" else None
             )
+
+            # Парсим автора
+            author = parse_author(offer)
+
+            # Парсим адрес
+            location = parse_location(offer)
+
+            # Парсим описание
+            description = parse_description(offer)
 
             # Создаём объявление
             ad = CianItem(
@@ -248,6 +266,9 @@ class CianParser:
                 deal_type=self.config.deal_type,
                 price=price,
                 total_meters=total_meters,
+                author=author,
+                location_data=location,
+                description=description,
             )
 
             return ad
