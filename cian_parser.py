@@ -1,9 +1,9 @@
 import asyncio
 import json
 import random
-import re
 import time
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from cian_cities import get_city_code, is_city_supported, get_all_cities, get_cities_count
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests
@@ -25,6 +25,17 @@ from xlsx_service import XLSXHandler
 class CianParser:
     def __init__(self, config: CianConfig, stop_event=None):
         self.config = config
+        # Валидация города
+        if not is_city_supported(self.config.location):
+            available_cities = ", ".join(get_all_cities()[:10])
+            raise ValueError(
+                f"Город '{self.config.location}' не поддерживается Циан.\n"
+                f"Доступные города: {available_cities}... (всего {get_cities_count()} городов)"
+            )
+
+        # Получаем код города
+        self.city_code = get_city_code(self.config.location)
+        logger.info(f"📍 Город: {self.config.location} (код региона: {self.city_code})")
         self.proxy_obj = self.get_proxy_obj()
         self.db_handler = SQLiteDBHandler()
         self.tg_handler = self.get_tg_handler()
@@ -477,11 +488,19 @@ class CianParser:
 
     def parse(self):
         """Главный метод парсинга"""
-        logger.info("Начинаем парсинг Циан")
+        logger.info(f"Начинаем парсинг Циан для города: {self.config.location}")
 
         for url_index, url in enumerate(self.config.urls):
             logger.info(f"Обработка ссылки {url_index + 1}/{len(self.config.urls)}")
-
+            # Обработка region в URL
+            if 'region=' not in url:
+                separator = '&' if '?' in url else '?'
+                url = f"{url}{separator}region={self.city_code}"
+                logger.info(f"➕ Добавлен region={self.city_code} в URL")
+            else:
+                import re
+                url = re.sub(r'region=\d+', f'region={self.city_code}', url)
+                logger.info(f"🔄 Заменён region на {self.city_code} в URL")
             for page in range(self.config.count):
                 if self.stop_event and self.stop_event.is_set():
                     return
