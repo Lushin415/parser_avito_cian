@@ -205,3 +205,51 @@ def extract_area_from_title(title: str) -> float:
                 continue
 
     return -1.0
+
+
+def extract_price_from_description(description: str) -> int:
+    """Извлекает цену из описания если нет в заголовке"""
+    if not description:
+        return 0
+
+    patterns = [
+        r'цена[:\s]*([\d\s]+)\s*(?:руб|₽)',
+        r'аренда[:\s]*([\d\s]+)\s*(?:руб|₽)',
+        r'стоимость[:\s]*([\d\s]+)\s*(?:руб|₽)',
+        r'от\s*([\d\s]+)\s*(?:руб|₽)',
+        r'за\s*([\d\s]+)\s*(?:руб|₽)',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, description, re.IGNORECASE)
+        if match:
+            price_str = match.group(1).replace(' ', '').replace('\xa0', '')
+            try:
+                return int(price_str)
+            except:
+                continue
+
+    return 0
+
+
+def extract_area_from_description(description: str) -> float:
+    """Извлекает площадь из описания"""
+    if not description:
+        return -1.0
+
+    patterns = [
+        r'площадь[:\s]*([\d,\.]+)\s*м',
+        r'([\d,\.]+)\s*м²',
+        r'([\d,\.]+)\s*кв\.?\s*м',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, description, re.IGNORECASE)
+        if match:
+            area_str = match.group(1).replace(',', '.')
+            try:
+                return float(area_str)
+            except:
+                continue
+
+    return -1.0

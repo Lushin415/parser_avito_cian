@@ -152,10 +152,15 @@ class AvitoParse:
                     raise requests.RequestsError(f"Ошибка сервера: {response.status_code}")
                 if response.status_code in [302, 403, 429]:
                     self.bad_request_count += 1
+                    logger.warning(f"⚠️ Блокировка Avito: код {response.status_code}")
                     self.session = requests.Session()
                     if attempt >= 3:
                         self.cookies = self.get_cookies()
                     self.change_ip()
+                    if response.status_code == 429:
+                        backoff_time = min(attempt * 10, 60)  # 10, 20, 30 сек (макс 60)
+                        logger.warning(f"⚠️ Блокировка 429! Пауза {backoff_time} сек...")
+                        time.sleep(backoff_time)
                     raise requests.RequestsError(f"Слишком много запросов: {response.status_code}")
 
                 self.save_cookies()
@@ -399,18 +404,34 @@ class AvitoParse:
         if not self.config.parse_views:
             return ads
 
-        logger.info("Начинаю парсинг просмотров")
+        logger.info(f"🔍 Начинаю парсинг просмотров для {len(ads)} объявлений")
 
-        for ad in ads:
+        for index, ad in enumerate(ads, 1):
             try:
+                logger.info(f"📊 [{index}/{len(ads)}] ID: {ad.id}, URL: {ad.urlPath}")  # ← ДОБАВЬ
+
                 html_code_full_page = self.fetch_data(url=f"https://www.avito.ru{ad.urlPath}")
+
+                # ДОБАВЬ ПРОВЕРКУ
+                if not html_code_full_page:
+                    logger.warning(f"⚠️ HTML пустой для {ad.urlPath}, пропускаю")
+                    continue
+
+                logger.debug(f"✅ HTML получен: {len(html_code_full_page)} байт")  # ← ДОБАВЬ
+
                 ad.total_views, ad.today_views = self._extract_views(html=html_code_full_page)
-                delay = random.uniform(0.1, 0.9)
+
+                logger.debug(f"📈 Просмотры: всего={ad.total_views}, сегодня={ad.today_views}")  # ← ДОБАВЬ
+
+                delay = random.uniform(0.9, 2.5)
+                logger.debug(f"⏸️ Пауза {delay:.1f} сек...")
                 time.sleep(delay)
+
             except Exception as err:
-                logger.warning(f"Ошибка при парсинге {ad.urlPath}: {err}")
+                logger.error(f"❌ Ошибка при парсинге {ad.urlPath}: {err}", exc_info=True)  # ← ДОБАВЬ exc_info
                 continue
 
+        logger.info("✅ Парсинг просмотров завершён")
         return ads
 
     @staticmethod

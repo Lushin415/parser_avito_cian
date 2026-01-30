@@ -1,17 +1,17 @@
 [avito]
-tg_token = ""
-tg_chat_id = []
+tg_token = "8374925023:AAG9QwKAfXnwDZ4ZvtjP6zaoaqkEXeZn6p8"
+tg_chat_id = [338908929]
 vk_token = ""
 vk_user_id = []
 urls = [
-    "https://www.avito.ru/all/telefony/mobilnye_telefony/apple/iphone_11-ASgBAgICA0SywA2kmzm0wA3OqzmwwQ2I_Dc?cd=1&f=ASgBAQECA0SywA2kmzm0wA3OqzmwwQ2I_DcBQOjrDkT~_dsC_P3bAvr92wL4_dsCAUXGmgwUeyJmcm9tIjowLCJ0byI6OTAwMH0&s=104&user=1",
+    "https://www.avito.ru/irkutskaya_oblast/kommercheskaya_nedvizhimost/sdam/ofis-ASgBAgICAkSwCNRWnsMNhNk5?context=H4sIAAAAAAAA_wEtANL_YToxOntzOjg6ImZyb21QYWdlIjtzOjE2OiJzZWFyY2hGb3JtV2lkZ2V0Ijt9F_yIfi0AAAA&f=ASgBAgECA0SwCNRW9BKk2gGeww2E2TkBRcaaDBp7ImZyb20iOjEwMDAwLCJ0byI6MTAwMDAwfQ",
 ]
-count = 1
+count = 3
 keys_word_white_list = []
 keys_word_black_list = []
 seller_black_list = []
 max_price = 100000
-min_price = 1000
+min_price = 10000
 geo = ""
 proxy_string = ""
 proxy_change_url = ""
@@ -20,17 +20,17 @@ pause_between_links = 2
 max_age = 0
 max_count_of_retry = 5
 ignore_reserv = false
-ignore_promotion = true
-one_time_start = true
-one_file_for_link = true
-parse_views = true
+ignore_promotion = false
+one_time_start = false
+one_file_for_link = false
+parse_views = false
 save_xlsx = true
 use_webdriver = true
-
+#=====================================CIAN==========================
 [cian]
 # Ссылки для парсинга (коммерческая недвижимость в аренду)
 urls = [
-    "https://www.cian.ru/cat.php?deal_type=rent&engine_version=2&offer_type=offices&region=1&type=4",
+    "https://www.cian.ru/cat.php?deal_type=rent&engine_version=2&offer_type=offices&type=4",
 ]
 
 # Тип сделки: "rent_long" (долгосрочная аренда) или "sale" (продажа)
@@ -49,7 +49,7 @@ seller_black_list = []
 
 # Цена (в рублях)
 max_price = 500000
-min_price = 30000
+min_price = 100000
 
 # Площадь (в кв.м) - НОВОЕ
 min_area = 50
@@ -83,3 +83,5 @@ tg_chat_id = [338908929]
 # Сохранение результатов
 save_xlsx = true
 one_time_start = false
+
+#=====================================CIAN==========================

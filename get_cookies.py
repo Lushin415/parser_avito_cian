@@ -164,11 +164,22 @@ class PlaywrightClient:
 
     async def change_ip(self, retries: int = MAX_RETRIES):
         if not self.proxy_split_obj:
-            logger.info("Сейчас бы сменили ip, но прокси нет - поэтому ждем")
-            for i in range(RETRY_DELAY_WITHOUT_PROXY):
+            logger.warning("⚠️ IP заблокирован, но прокси НЕ настроен!")
+            logger.warning("⚠️ Рекомендация: настройте прокси в config.toml")
+            logger.warning(f"⚠️ Ожидание {RETRY_DELAY_WITHOUT_PROXY} секунд...")
+
+            for i in range(RETRY_DELAY_WITHOUT_PROXY):  # 300 секунд
                 if self.stop_event and self.stop_event.is_set():
                     return False
+
+                # Показываем прогресс каждые 30 секунд
+                if i % 30 == 0 and i > 0:
+                    remaining = RETRY_DELAY_WITHOUT_PROXY - i
+                    logger.info(f"⏳ Осталось ждать: {remaining} секунд...")
+
                 await asyncio.sleep(1)
+
+            logger.info("✅ Ожидание завершено, пробую снова...")
             return False
         for attempt in range(1, retries + 1):
             try:

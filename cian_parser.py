@@ -47,6 +47,9 @@ class CianParser:
         self.headers = HEADERS.copy()
         self.good_request_count = 0
         self.bad_request_count = 0
+        self.stats_price_zero = 0  # Цена = 0
+        self.stats_area_negative = 0  # Площадь <= 0
+        self.stats_author_unknown = 0  # Автор неизвестен
 
         log_config(config=self.config, version=VERSION)
         logger.info(f"Запуск CianParser v{VERSION}")
@@ -239,7 +242,9 @@ class CianParser:
                 parse_location,
                 parse_description,
                 extract_price_from_title,
-                extract_area_from_title
+                extract_area_from_title,
+                extract_price_from_description,
+                extract_area_from_description
             )
 
             # Ищем заголовок и ссылку
@@ -257,11 +262,17 @@ class CianParser:
             # ID из URL
             ad_id = self._extract_id_from_url(url)
 
-            # Парсим цену из заголовка
-            price_value = extract_price_from_title(title)
+            price_value = self._extract_price_from_card(offer)
+            if price_value == 0:
+                # Парсим цену (СНАЧАЛА из карточки, потом из заголовка)
+                price_value = self._extract_price_from_card(offer)
 
-            # Парсим площадь из заголовка
-            total_meters = extract_area_from_title(title)
+                if price_value == 0:
+                    # Fallback 1: ищем в заголовке
+                    logger.debug(f"   🔄 Цена не найдена в карточке, пробую заголовок...")
+                    price_value = extract_price_from_title(title)
+
+
 
             # Создаём объект цены
             from cian_models import CianPrice
@@ -279,6 +290,30 @@ class CianParser:
             # Парсим описание
             description = parse_description(offer)
 
+            # 4. Парсим площадь (СНАЧАЛА из карточки, потом из заголовка)
+            total_meters = self._extract_area_from_card(offer)
+
+            if total_meters <= 0:
+                # Fallback 1: ищем в заголовке
+                logger.debug(f"   🔄 Площадь не найдена в карточке, пробую заголовок...")
+                total_meters = extract_area_from_title(title)
+
+            if total_meters <= 0 and description:
+                # Fallback 2: ищем в описании
+                logger.debug(f"   🔄 Площадь не найдена в карточке и заголовке, пробую описание...")
+                from cian_helpers import extract_area_from_description
+                total_meters = extract_area_from_description(description)
+
+                if total_meters > 0:
+                    logger.debug(f"   💡 Площадь найдена в описании: {total_meters}")
+            # Fallback 2: если всё ещё не нашли - ищем в описании
+            if price_value == 0 and description:
+                logger.debug(f"   🔄 Цена не найдена в карточке и заголовке, пробую описание...")
+                price_value = extract_price_from_description(description)
+
+                if price_value > 0:
+                    logger.debug(f"   💡 Цена найдена в описании: {price_value}")
+
             # Создаём объявление
             ad = CianItem(
                 id=ad_id,
@@ -292,7 +327,25 @@ class CianParser:
                 location_data=location,
                 description=description,
             )
+            # ← ДОБАВЬ ЭТО ДЛЯ ДИАГНОСТИКИ:
+            # TODO: УДАЛИТь
+            logger.debug(f"🔍 Объявление ID={ad.id}:")
+            logger.debug(f"   Цена = {price_value}")
+            logger.debug(f"   Площадь = {total_meters}")
+            logger.debug(f"   Автор = \"{author.name}\" ({author.type})")
 
+            # Статистика граничных случаев
+            if price_value == 0:
+                self.stats_price_zero += 1  # ← УВЕЛИЧИВАЕМ СЧЁТЧИК
+                logger.warning(f"⚠️ Объявление ID={ad.id}: Цена = 0! URL={url}")
+
+            if total_meters <= 0:
+                self.stats_area_negative += 1  # ← УВЕЛИЧИВАЕМ СЧЁТЧИК
+                logger.warning(f"⚠️ Объявление ID={ad.id}: Площадь = {total_meters}! URL={url}")
+
+            if author.name == "Неизвестно":
+                self.stats_author_unknown += 1  # ← УВЕЛИЧИВАЕМ СЧЁТЧИК
+                logger.info(f"ℹ️ Объявление ID={ad.id}: Автор = \"Неизвестно\"")
             return ad
 
         except Exception as e:
@@ -349,6 +402,124 @@ class CianParser:
             if part.isdigit():
                 return part
         return str(abs(hash(url)))[:10]
+
+    @staticmethod
+    def _extract_price_from_card(offer) -> int:
+        """Извлекает цену из карточки объявления (парсит весь текст)"""
+        try:
+            # Берём весь текст карточки
+            full_text = offer.get_text()
+
+            logger.debug(f"   🔍 Ищу цену в тексте карточки (первые 200 символов): {full_text[:200]}")
+
+            import re
+
+            # Паттерны для поиска цены в аренду (руб/мес)
+            patterns = [
+                r'за\s+([\d\s]+)\s+руб\.?/мес',  # "за 213 256 руб./мес."
+                r'за\s+([\d\s]+)\s+₽/мес',  # "за 213 256 ₽/мес."
+                r'([\d\s]+)\s+руб\.?/мес',  # "213 256 руб./мес."
+                r'([\d\s]+)\s+₽/мес',  # "213 256 ₽/мес."
+                r'([\d\s]+)\s+рублей\s+в\s+месяц',  # "213 256 рублей в месяц"
+                r'([\d\s]+)\s+₽\s+в\s+месяц',  # "213 256 ₽ в месяц"
+                r'стоимость[:\s]+([\d\s]+)',  # "стоимость: 213256"
+                r'цена[:\s]+([\d\s]+)',  # "цена: 213256"
+                r'за\s+([\d\s]+)\s+руб\.?/мес',
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, full_text, re.IGNORECASE)
+                if match:
+                    # Извлекаем число
+                    price_str = match.group(1).replace(' ', '').replace('\xa0', '').replace('\u202f', '')
+
+                    try:
+                        price = int(price_str)
+
+                        # Проверка разумности (от 10 000 до 100 000 000 руб/мес для коммерции)
+                        if 10000 <= price <= 100000000:
+                            logger.debug(f"   💡 Цена найдена в карточке: {price} (паттерн: {pattern})")
+                            return price
+                        else:
+                            logger.debug(f"   ⚠️ Цена {price} вне разумных пределов, пропускаю...")
+
+                    except ValueError:
+                        logger.debug(f"   ⚠️ Не удалось преобразовать в число: '{price_str}'")
+                        continue
+
+            logger.debug(f"   ❌ Цена не найдена ни по одному паттерну")
+            return 0
+
+        except Exception as e:
+            logger.error(f"Ошибка парсинга цены из карточки: {e}")
+            return 0
+
+    @staticmethod
+    def _extract_area_from_card(offer) -> float:
+        """Извлекает площадь из карточки объявления (парсит весь текст)"""
+        try:
+            # Берём весь текст карточки
+            full_text = offer.get_text()
+
+            logger.debug(f"   🔍 Ищу площадь в тексте карточки")
+
+            import re
+
+            # Паттерны для поиска площади
+            patterns = [
+                # Основные форматы с м²
+                r'([\d\s,\.]+)\s*м²',  # "265 м²" или "1 199 м²"
+                r'([\d\s,\.]+)\s*м2',  # "265 м2"
+                r'([\d\s,\.]+)\s*кв\.?\s*м',  # "265 кв.м"
+
+                # С разными разделителями
+                r'([\d\s]+(?:[,\.]\d+)?)\s*м²',  # "265.5 м²" или "265,5 м²"
+
+                # С текстом "площадь"
+                r'площадь[:\s]+([\d\s,\.]+)\s*м',  # "площадь: 265 м²"
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, full_text, re.IGNORECASE)
+                if match:
+                    # Извлекаем число
+                    area_str = match.group(1)
+
+                    # Убираем ВСЕ виды пробелов
+                    area_str = (area_str
+                                .replace(' ', '')
+                                .replace('\xa0', '')  # неразрывный пробел
+                                .replace('\u202f', '')  # узкий неразрывный пробел
+                                .replace('\u2009', '')  # тонкий пробел
+                                .replace(',', '.')  # запятая → точка
+                                )
+
+                    try:
+                        # Берём первое число (если диапазон через "–").
+                        first_number = area_str.split('–')[0].strip()
+
+                        if not first_number:
+                            continue
+
+                        area = float(first_number)
+
+                        # Проверка разумности (от 1 до 100 000 м² для коммерции)
+                        if 1 <= area <= 100000:
+                            logger.debug(f"   💡 Площадь найдена в карточке: {area} м² (паттерн: {pattern})")
+                            return area
+                        else:
+                            logger.debug(f"   ⚠️ Площадь {area} вне разумных пределов, пропускаю...")
+
+                    except (ValueError, IndexError) as e:
+                        logger.debug(f"   ⚠️ Не удалось преобразовать в число: '{area_str}' ({e})")
+                        continue
+
+            logger.debug(f"   ❌ Площадь не найдена ни по одному паттерну")
+            return -1.0
+
+        except Exception as e:
+            logger.error(f"Ошибка парсинга площади из карточки: {e}")
+            return -1.0
 
     def filter_ads(self, ads: list[CianItem]) -> list[CianItem]:
         """Фильтрация объявлений"""
@@ -544,6 +715,22 @@ class CianParser:
                 logger.info(f"Пауза {self.config.pause_between_links} сек.")
                 time.sleep(self.config.pause_between_links)
 
+        # todo: УДАЛИТЬ
+        # Подсчитываем граничные случаи из логов
+        with open("logs/app.log", "r") as f:
+            log_content = f.read()
+
+        count_price_zero = log_content.count("Цена = 0!")
+        count_area_negative = log_content.count("Площадь = -1!") + log_content.count("Площадь = 0!")
+        count_author_unknown = log_content.count("Автор = \"Неизвестно\"")
+
+        logger.info("=" * 60)
+        logger.info("📊 СТАТИСТИКА ГРАНИЧНЫХ СЛУЧАЕВ:")
+        logger.info(f"   Объявлений с ценой = 0: {self.stats_price_zero}")
+        logger.info(f"   Объявлений с площадью <= 0: {self.stats_area_negative}")
+        logger.info(f"   Объявлений с автором \"Неизвестно\": {self.stats_author_unknown}")
+        logger.info("=" * 60)
+        # todo: УДАЛИТЬ
         logger.info(f"Парсинг завершён. Хорошие запросы: {self.good_request_count}, плохие: {self.bad_request_count}")
 
 
@@ -556,9 +743,22 @@ if __name__ == "__main__":
         logger.error(f"Ошибка загрузки конфига: {err}")
         exit(1)
 
+    # ВАЛИДАЦИЯ ГОРОДА ДО ЦИКЛА:
+    try:
+        # Создаём парсер один раз для валидации
+        parser = CianParser(config)
+    except ValueError as err:
+        # Если город невалидный - выходим
+        logger.error(f"❌ {err}")
+        logger.error("❌ Исправьте config.toml и перезапустите программу!")
+        exit(1)
+    except Exception as err:
+        logger.error(f"❌ Критическая ошибка инициализации: {err}")
+        exit(1)
+
+    # Теперь запускаем цикл парсинга
     while True:
         try:
-            parser = CianParser(config)
             parser.parse()
 
             if config.one_time_start:
@@ -567,6 +767,15 @@ if __name__ == "__main__":
 
             logger.info(f"Пауза {config.pause_general} сек")
             time.sleep(config.pause_general)
+
+        except KeyboardInterrupt:
+            logger.info("Остановлено пользователем (Ctrl+C)")
+            break
+
         except Exception as err:
-            logger.error(f"Ошибка: {err}. Перезапуск через 30 сек")
+            logger.error(f"Ошибка парсинга: {err}. Перезапуск через 30 сек")
+            import traceback
+
+            logger.error(traceback.format_exc())
             time.sleep(30)
+

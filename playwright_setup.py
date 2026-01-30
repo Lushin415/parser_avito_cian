@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import platform
 from loguru import logger
 
 
@@ -10,10 +11,16 @@ def ensure_playwright_installed(browser: str = "chromium"):
     Устанавливает их при необходимости.
     """
     try:
-        # === Указываем правильный путь к браузерам ===
-        ms_playwright_dir = os.path.join(
-            os.path.expanduser("~"), "AppData", "Local", "ms-playwright"
-        )
+        # === Указываем правильный путь к браузерам (кросс-платформенно) ===
+        if platform.system() == "Windows":
+            ms_playwright_dir = os.path.join(
+                os.path.expanduser("~"), "AppData", "Local", "ms-playwright"
+            )
+        else:  # Linux/Mac
+            ms_playwright_dir = os.path.join(
+                os.path.expanduser("~"), ".cache", "ms-playwright"
+            )
+
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = ms_playwright_dir
 
         from playwright._impl._driver import compute_driver_executable
@@ -34,4 +41,3 @@ def ensure_playwright_installed(browser: str = "chromium"):
 
     except Exception as e:
         logger.warning(f"Ошибка при установке\проверке Playwright: {e}")
-
