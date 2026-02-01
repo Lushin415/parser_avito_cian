@@ -51,6 +51,13 @@ class AvitoParse:
 
         log_config(config=self.config, version=VERSION)
 
+    def _parse_area_from_description(self, ads: list[Item]) -> list[Item]:
+        """Парсит площадь из описания объявлений"""
+        for ad in ads:
+            if ad.description and not ad.total_meters:
+                ad.total_meters = extract_area_from_description(ad.description)
+        return ads
+
     def get_tg_handler(self) -> SendAdToTg | None:
         if all([self.config.tg_token, self.config.tg_chat_id]):
             return SendAdToTg(bot_token=self.config.tg_token, chat_id=self.config.tg_chat_id)
@@ -286,6 +293,7 @@ class AvitoParse:
 
     def filter_ads(self, ads: list[Item]) -> list[Item]:
         """Сортирует объявления"""
+        ads = self._parse_area_from_description(ads)
         filters = [
             self._filter_viewed,
             self._filter_by_price_range,
@@ -525,6 +533,43 @@ class AvitoParse:
         except Exception as err:
             logger.error(f"Не смог сформировать ссылку на следующую страницу для {url}. Ошибка: {err}")
 
+
+def extract_area_from_description(description: str) -> float | None:
+    """
+    Извлекает площадь из описания объявления Avito
+
+    Примеры:
+    - "120 м²" → 120.0
+    - "85,5 кв.м" → 85.5
+    - "Площадь 200 м2" → 200.0
+    """
+    if not description:
+        return None
+
+    import re
+
+    # Паттерны для поиска площади
+    patterns = [
+        r'(\d+(?:[.,]\d+)?)\s*м[²2]',  # "120 м²" или "120 м2"
+        r'(\d+(?:[.,]\d+)?)\s*кв\.?\s*м',  # "120 кв.м" или "120 кв м"
+        r'площадь[:\s]+(\d+(?:[.,]\d+)?)',  # "Площадь: 120" или "площадь 120"
+        r'(\d+(?:[.,]\d+)?)\s*квадратных метров',  # "120 квадратных метров"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, description, re.IGNORECASE)
+        if match:
+            area_str = match.group(1).replace(',', '.')
+            try:
+                area = float(area_str)
+                # Фильтр: площадь обычно от 10 до 10000 м²
+                if 10 <= area <= 10000:
+                    logger.debug(f"💡 Площадь найдена: {area} м²")
+                    return area
+            except ValueError:
+                continue
+
+    return None
 
 if __name__ == "__main__":
     try:

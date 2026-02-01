@@ -66,7 +66,20 @@ class SendAdToTg:
             seller = esc(str(ad.sellerId)) if ad.sellerId else ""
             is_promoted = getattr(ad, "isPromotion", False)
             source = "🔵 Avito"
-            area_text = ""  # У Avito нет площади в этом формате
+
+            # Площадь
+            area_text = ""
+            if ad.total_meters and ad.total_meters > 0:
+                area_text = f"\n📐 {esc(str(ad.total_meters))} м²"
+
+            # Адрес
+            address_text = ""
+            if ad.geo and ad.geo.formattedAddress:
+                # Убираем лишнее из адреса (например "Россия, ")
+                address = ad.geo.formattedAddress
+                if address.startswith("Россия, "):
+                    address = address[8:]  # Убираем "Россия, "
+                address_text = f"\n📍 {esc(address)}"
 
         elif isinstance(ad, CianItem):  # Cian
             price = esc(str(ad.price.value)) if ad.price.value else ""
@@ -81,6 +94,11 @@ class SendAdToTg:
                 area_text = f"\n📐 {esc(str(ad.total_meters))} м²"
             else:
                 area_text = ""
+
+            address_text = ""
+            if ad.location_data and ad.location_data.full_address:
+                address_text = f"\n📍 {esc(ad.location_data.full_address)}"
+
         else:
             return "Неизвестный тип объявления"
 
@@ -103,9 +121,13 @@ class SendAdToTg:
         elif title:
             parts.append(f"📝 {title}")
 
-        # Площадь (только для Cian) - УЖЕ ЭКРАНИРОВАНА выше
+        # Площадь (для обоих источников)
         if area_text:
             parts.append(area_text.strip())
+
+        # Адрес (для обоих источников)
+        if address_text:
+            parts.append(address_text.strip())
 
         # Продавец
         if seller:

@@ -100,6 +100,13 @@ class XLSXHandler:
 
         images_urls = [get_largest_image_url(img) for img in ad.images] if ad.images else []
 
+        # Получаем полный адрес
+        full_address = ""
+        if ad.geo and ad.geo.formattedAddress:
+            full_address = ad.geo.formattedAddress
+        elif ad.location and ad.location.name:
+            full_address = ad.location.name
+
         return [
             "Avito",  # Источник
             ad.id,  # ID
@@ -111,6 +118,7 @@ class XLSXHandler:
             self.get_ad_time(ad=ad),  # Дата публикации
             ad.sellerId if ad.sellerId else "",  # Продавец
             "",  # Тип автора (нет у Avito в таком виде)
+            full_address,
             ad.location.name if ad.location else "",  # Адрес (город)
             "",  # Округ (нет у Avito)
             "",  # Район (нет структурировано)

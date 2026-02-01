@@ -147,7 +147,7 @@ class Item(BaseModel):
     isPromotion: bool = False
     total_views: int | None = None
     today_views: int | None = None
-
+    total_meters: float | None = None  # Площадь помещения (м²)
 
 class ItemsResponse(BaseModel):
     items: List[Item]
