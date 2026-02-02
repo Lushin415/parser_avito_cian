@@ -1,0 +1,64 @@
+2026-01-29 10:37:51.516 | INFO     | __main__:get_proxy_obj:82 - Работаем без прокси
+2026-01-29 10:37:51.517 | DEBUG    | __main__:get_vk_handler:67 - VK handler не создан: vk_token или vk_user_id не заданы в конфиге
+2026-01-29 10:37:51.518 | INFO     | hide_private_data:log_config:64 - Запуск AvitoParse v3.1.15 с настройками:
+AvitoConfig(urls=['https://www.avito.ru/all/telefony/mobilnye_telefony/apple/iphone_11-ASgBAgICA0SywA2kmzm0wA3OqzmwwQ2I_Dc?cd=1&f=ASgBAQECA0SywA2kmzm0wA3OqzmwwQ2I_DcBQOjrDkT~_dsC_P3bAvr92wL4_dsCAUXGmgwUeyJmcm9tIjowLCJ0byI6OTAwMH0&s=104&user=1'], proxy_string='', proxy_change_url='', keys_word_white_list=[], keys_word_black_list=[], seller_black_list=[], count=1, tg_token='', tg_chat_id=['***'], vk_token='', vk_user_id=[], max_price=100000, min_price=1000, geo='', max_age=0, debug_mode=0, pause_general=20, pause_between_links=2, max_count_of_retry=5, ignore_reserv=False, ignore_promotion=True, one_time_start=True, one_file_for_link=True, parse_views=False, save_xlsx=True, use_webdriver=True)
+2026-01-29 10:37:52.206 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 429
+2026-01-29 10:37:52.207 | INFO     | __main__:change_ip:430 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 10:37:52.207 | DEBUG    | __main__:fetch_data:165 - Попытка 1 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 10:37:52.208 | DEBUG    | __main__:fetch_data:168 - Повтор через 1 секунд...
+2026-01-29 10:37:53.898 | DEBUG    | __main__:fetch_data:149 - Попытка 2: 429
+2026-01-29 10:37:53.899 | INFO     | __main__:change_ip:430 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 10:37:53.900 | DEBUG    | __main__:fetch_data:165 - Попытка 2 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 10:37:53.900 | DEBUG    | __main__:fetch_data:168 - Повтор через 2 секунд...
+2026-01-29 10:37:56.695 | DEBUG    | __main__:fetch_data:149 - Попытка 3: 429
+2026-01-29 10:37:56.697 | INFO     | get_cookies:get_cookies:211 - Пытаюсь обновить cookies
+2026-01-29 10:37:56.697 | DEBUG    | playwright_setup:ensure_playwright_installed:33 - Playwright уже установлен, хорошо
+2026-01-29 10:37:58.846 | WARNING  | __main__:get_cookies:104 - [get_cookies] Попытка 1 не удалась: Stealth.async_hooked_method: Executable doesn't exist at /home/alex/AppData/Local/ms-playwright/chromium_headless_shell-1169/chrome-linux/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+2026-01-29 10:37:58.847 | ERROR    | __main__:get_cookies:108 - [get_cookies] Все 1 попытки не удались
+2026-01-29 10:37:58.847 | INFO     | __main__:change_ip:430 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 10:37:58.848 | DEBUG    | __main__:fetch_data:165 - Попытка 3 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 10:37:58.848 | DEBUG    | __main__:fetch_data:168 - Повтор через 3 секунд...
+2026-01-29 10:38:02.597 | DEBUG    | __main__:fetch_data:149 - Попытка 4: 429
+2026-01-29 10:38:02.598 | INFO     | get_cookies:get_cookies:211 - Пытаюсь обновить cookies
+2026-01-29 10:38:02.599 | DEBUG    | playwright_setup:ensure_playwright_installed:33 - Playwright уже установлен, хорошо
+2026-01-29 10:38:02.974 | WARNING  | __main__:get_cookies:104 - [get_cookies] Попытка 1 не удалась: Stealth.async_hooked_method: Executable doesn't exist at /home/alex/AppData/Local/ms-playwright/chromium_headless_shell-1169/chrome-linux/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+2026-01-29 10:38:02.975 | ERROR    | __main__:get_cookies:108 - [get_cookies] Все 1 попытки не удались
+2026-01-29 10:38:02.975 | INFO     | __main__:change_ip:430 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 10:38:02.976 | DEBUG    | __main__:fetch_data:165 - Попытка 4 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 10:38:02.976 | DEBUG    | __main__:fetch_data:168 - Повтор через 4 секунд...
+2026-01-29 10:38:07.675 | DEBUG    | __main__:fetch_data:149 - Попытка 5: 429
+2026-01-29 10:38:07.676 | INFO     | get_cookies:get_cookies:211 - Пытаюсь обновить cookies
+2026-01-29 10:38:07.677 | DEBUG    | playwright_setup:ensure_playwright_installed:33 - Playwright уже установлен, хорошо
+2026-01-29 10:38:08.019 | WARNING  | __main__:get_cookies:104 - [get_cookies] Попытка 1 не удалась: Stealth.async_hooked_method: Executable doesn't exist at /home/alex/AppData/Local/ms-playwright/chromium_headless_shell-1169/chrome-linux/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+2026-01-29 10:38:08.019 | ERROR    | __main__:get_cookies:108 - [get_cookies] Все 1 попытки не удались
+2026-01-29 10:38:08.019 | INFO     | __main__:change_ip:430 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 10:38:08.020 | DEBUG    | __main__:fetch_data:165 - Попытка 5 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 10:38:08.020 | INFO     | __main__:fetch_data:171 - Все попытки были неуспешными
+2026-01-29 10:38:08.020 | WARNING  | __main__:parse:189 - Не удалось получить HTML для https://www.avito.ru/all/telefony/mobilnye_telefony/apple/iphone_11-ASgBAgICA0SywA2kmzm0wA3OqzmwwQ2I_Dc?cd=1&f=ASgBAQECA0SywA2kmzm0wA3OqzmwwQ2I_DcBQOjrDkT~_dsC_P3bAvr92wL4_dsCAUXGmgwUeyJmcm9tIjowLCJ0byI6OTAwMH0&s=104&user=1, пробую заново через 2 сек.
+2026-01-29 10:38:10.020 | INFO     | __main__:parse:238 - Сохранять нечего
+2026-01-29 10:38:10.021 | INFO     | __main__:parse:243 - Хорошие запросы: 0шт, плохие: 5шт
+2026-01-29 10:38:10.021 | INFO     | __main__:<module>:520 - Парсинг завершен т.к. включён one_time_start в настройках

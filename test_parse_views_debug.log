@@ -1,0 +1,106 @@
+2026-01-29 11:42:10.757 | INFO     | __main__:get_proxy_obj:82 - Работаем без прокси
+2026-01-29 11:42:10.758 | DEBUG    | __main__:get_vk_handler:67 - VK handler не создан: vk_token или vk_user_id не заданы в конфиге
+2026-01-29 11:42:10.759 | INFO     | hide_private_data:log_config:64 - Запуск AvitoParse v3.1.15 с настройками:
+AvitoConfig(urls=['https://www.avito.ru/all/telefony/mobilnye_telefony/apple/iphone_11-ASgBAgICA0SywA2kmzm0wA3OqzmwwQ2I_Dc?cd=1&f=ASgBAQECA0SywA2kmzm0wA3OqzmwwQ2I_DcBQOjrDkT~_dsC_P3bAvr92wL4_dsCAUXGmgwUeyJmcm9tIjowLCJ0byI6OTAwMH0&s=104&user=1'], proxy_string='', proxy_change_url='', keys_word_white_list=[], keys_word_black_list=[], seller_black_list=[], count=1, tg_token='', tg_chat_id=['***'], vk_token='', vk_user_id=[], max_price=100000, min_price=1000, geo='', max_age=0, debug_mode=0, pause_general=20, pause_between_links=2, max_count_of_retry=5, ignore_reserv=False, ignore_promotion=True, one_time_start=True, one_file_for_link=True, parse_views=True, save_xlsx=True, use_webdriver=True)
+2026-01-29 11:42:12.479 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 200
+2026-01-29 11:42:12.834 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_viewed осталось 50
+2026-01-29 11:42:12.835 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_by_price_range осталось 50
+2026-01-29 11:42:12.835 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_by_black_keywords осталось 50
+2026-01-29 11:42:12.835 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_by_white_keyword осталось 50
+2026-01-29 11:42:12.835 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_by_address осталось 50
+2026-01-29 11:42:12.835 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_by_seller осталось 50
+2026-01-29 11:42:12.835 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_by_recent_time осталось 50
+2026-01-29 11:42:12.836 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_by_reserve осталось 50
+2026-01-29 11:42:12.836 | INFO     | __main__:filter_ads:298 - После фильтрации _filter_by_promotion осталось 50
+2026-01-29 11:42:12.836 | INFO     | __main__:parse_views:402 - 🔍 Начинаю парсинг просмотров для 50 объявлений
+2026-01-29 11:42:12.836 | INFO     | __main__:parse_views:406 - 📊 [1/50] ID: 7860355692, URL: /krasnoyarsk/telefony/iphone_11_64_gb_1_sim_7860355692?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA
+2026-01-29 11:42:13.379 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 200
+2026-01-29 11:42:13.381 | DEBUG    | __main__:parse_views:415 - ✅ HTML получен: 1093673 байт
+2026-01-29 11:42:13.444 | DEBUG    | __main__:parse_views:419 - 📈 Просмотры: всего=6, сегодня=6
+2026-01-29 11:42:14.231 | INFO     | __main__:parse_views:406 - 📊 [2/50] ID: 7869855371, URL: /zima/telefony/iphone_11_64_gb_sim_esim_7869855371?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA
+2026-01-29 11:42:14.735 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 200
+2026-01-29 11:42:14.737 | DEBUG    | __main__:parse_views:415 - ✅ HTML получен: 1106277 байт
+2026-01-29 11:42:14.794 | DEBUG    | __main__:parse_views:419 - 📈 Просмотры: всего=6, сегодня=6
+2026-01-29 11:42:15.650 | INFO     | __main__:parse_views:406 - 📊 [3/50] ID: 7858018689, URL: /chita/telefony/iphone_11_128_gb_1_sim_7858018689?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA
+2026-01-29 11:42:15.897 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 429
+2026-01-29 11:42:15.898 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:15.898 | DEBUG    | __main__:fetch_data:165 - Попытка 1 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:15.898 | DEBUG    | __main__:fetch_data:168 - Повтор через 1 секунд...
+2026-01-29 11:42:17.619 | DEBUG    | __main__:fetch_data:149 - Попытка 2: 429
+2026-01-29 11:42:17.620 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:17.620 | DEBUG    | __main__:fetch_data:165 - Попытка 2 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:17.621 | DEBUG    | __main__:fetch_data:168 - Повтор через 2 секунд...
+2026-01-29 11:42:20.330 | DEBUG    | __main__:fetch_data:149 - Попытка 3: 429
+2026-01-29 11:42:20.331 | INFO     | get_cookies:get_cookies:211 - Пытаюсь обновить cookies
+2026-01-29 11:42:20.332 | DEBUG    | playwright_setup:ensure_playwright_installed:33 - Playwright уже установлен, хорошо
+2026-01-29 11:42:20.708 | WARNING  | __main__:get_cookies:104 - [get_cookies] Попытка 1 не удалась: Stealth.async_hooked_method: Executable doesn't exist at /home/alex/AppData/Local/ms-playwright/chromium_headless_shell-1169/chrome-linux/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+2026-01-29 11:42:20.708 | ERROR    | __main__:get_cookies:108 - [get_cookies] Все 1 попытки не удались
+2026-01-29 11:42:20.708 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:20.709 | DEBUG    | __main__:fetch_data:165 - Попытка 3 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:20.709 | INFO     | __main__:fetch_data:171 - Все попытки были неуспешными
+2026-01-29 11:42:20.709 | WARNING  | __main__:parse_views:412 - ⚠️ HTML пустой для /chita/telefony/iphone_11_128_gb_1_sim_7858018689?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA, пропускаю
+2026-01-29 11:42:20.709 | INFO     | __main__:parse_views:406 - 📊 [4/50] ID: 7852725095, URL: /kaliningrad/telefony/iphone_11_64_gb_1_sim_7852725095?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA
+2026-01-29 11:42:21.352 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 429
+2026-01-29 11:42:21.352 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:21.353 | DEBUG    | __main__:fetch_data:165 - Попытка 1 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:21.353 | DEBUG    | __main__:fetch_data:168 - Повтор через 1 секунд...
+2026-01-29 11:42:23.058 | DEBUG    | __main__:fetch_data:149 - Попытка 2: 429
+2026-01-29 11:42:23.058 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:23.059 | DEBUG    | __main__:fetch_data:165 - Попытка 2 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:23.059 | DEBUG    | __main__:fetch_data:168 - Повтор через 2 секунд...
+2026-01-29 11:42:25.772 | DEBUG    | __main__:fetch_data:149 - Попытка 3: 429
+2026-01-29 11:42:25.773 | INFO     | get_cookies:get_cookies:211 - Пытаюсь обновить cookies
+2026-01-29 11:42:25.773 | DEBUG    | playwright_setup:ensure_playwright_installed:33 - Playwright уже установлен, хорошо
+2026-01-29 11:42:26.149 | WARNING  | __main__:get_cookies:104 - [get_cookies] Попытка 1 не удалась: Stealth.async_hooked_method: Executable doesn't exist at /home/alex/AppData/Local/ms-playwright/chromium_headless_shell-1169/chrome-linux/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+2026-01-29 11:42:26.149 | ERROR    | __main__:get_cookies:108 - [get_cookies] Все 1 попытки не удались
+2026-01-29 11:42:26.150 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:26.150 | DEBUG    | __main__:fetch_data:165 - Попытка 3 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:26.150 | INFO     | __main__:fetch_data:171 - Все попытки были неуспешными
+2026-01-29 11:42:26.150 | WARNING  | __main__:parse_views:412 - ⚠️ HTML пустой для /kaliningrad/telefony/iphone_11_64_gb_1_sim_7852725095?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA, пропускаю
+2026-01-29 11:42:26.150 | INFO     | __main__:parse_views:406 - 📊 [5/50] ID: 7869518682, URL: /kaliningrad/telefony/iphone_11_64_gb_sim_esim_7869518682?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA
+2026-01-29 11:42:26.912 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 429
+2026-01-29 11:42:26.912 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:26.913 | DEBUG    | __main__:fetch_data:165 - Попытка 1 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:26.913 | DEBUG    | __main__:fetch_data:168 - Повтор через 1 секунд...
+2026-01-29 11:42:28.607 | DEBUG    | __main__:fetch_data:149 - Попытка 2: 429
+2026-01-29 11:42:28.608 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:28.608 | DEBUG    | __main__:fetch_data:165 - Попытка 2 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:28.609 | DEBUG    | __main__:fetch_data:168 - Повтор через 2 секунд...
+2026-01-29 11:42:31.322 | DEBUG    | __main__:fetch_data:149 - Попытка 3: 429
+2026-01-29 11:42:31.323 | INFO     | get_cookies:get_cookies:211 - Пытаюсь обновить cookies
+2026-01-29 11:42:31.323 | DEBUG    | playwright_setup:ensure_playwright_installed:33 - Playwright уже установлен, хорошо
+2026-01-29 11:42:31.704 | WARNING  | __main__:get_cookies:104 - [get_cookies] Попытка 1 не удалась: Stealth.async_hooked_method: Executable doesn't exist at /home/alex/AppData/Local/ms-playwright/chromium_headless_shell-1169/chrome-linux/headless_shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     playwright install                                     ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝
+2026-01-29 11:42:31.704 | ERROR    | __main__:get_cookies:108 - [get_cookies] Все 1 попытки не удались
+2026-01-29 11:42:31.704 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:31.704 | DEBUG    | __main__:fetch_data:165 - Попытка 3 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:31.705 | INFO     | __main__:fetch_data:171 - Все попытки были неуспешными
+2026-01-29 11:42:31.705 | WARNING  | __main__:parse_views:412 - ⚠️ HTML пустой для /kaliningrad/telefony/iphone_11_64_gb_sim_esim_7869518682?context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA, пропускаю
+2026-01-29 11:42:31.705 | INFO     | __main__:parse_views:406 - 📊 [6/50] ID: 7860525471, URL: /sankt-peterburg/telefony/iphone_11_128_gb_sim_esim_7860525471?slocation=621540&context=H4sIAAAAAAAA_wE_AMD_YToyOntzOjEzOiJsb2NhbFByaW9yaXR5IjtiOjA7czoxOiJ4IjtzOjE2OiJpQTgzYmp1VkFIelEyanNQIjt9bKtE9z8AAAA
+2026-01-29 11:42:32.380 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 429
+2026-01-29 11:42:32.380 | INFO     | __main__:change_ip:445 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 11:42:32.381 | DEBUG    | __main__:fetch_data:165 - Попытка 1 закончилась неуспешно: Слишком много запросов: 429
+2026-01-29 11:42:32.381 | DEBUG    | __main__:fetch_data:168 - Повтор через 1 секунд...

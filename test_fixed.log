@@ -1,0 +1,7 @@
+2026-01-29 12:31:44.701 | INFO     | __main__:get_proxy_obj:82 - Работаем без прокси
+2026-01-29 12:31:44.701 | DEBUG    | __main__:get_vk_handler:67 - VK handler не создан: vk_token или vk_user_id не заданы в конфиге
+2026-01-29 12:31:44.703 | INFO     | hide_private_data:log_config:64 - Запуск AvitoParse v3.1.15 с настройками:
+AvitoConfig(urls=['https://www.avito.ru/all/telefony/mobilnye_telefony/apple/iphone_11-ASgBAgICA0SywA2kmzm0wA3OqzmwwQ2I_Dc?cd=1&f=ASgBAQECA0SywA2kmzm0wA3OqzmwwQ2I_DcBQOjrDkT~_dsC_P3bAvr92wL4_dsCAUXGmgwUeyJmcm9tIjowLCJ0byI6OTAwMH0&s=104&user=1'], proxy_string='', proxy_change_url='', keys_word_white_list=[], keys_word_black_list=[], seller_black_list=[], count=1, tg_token='', tg_chat_id=['***'], vk_token='', vk_user_id=[], max_price=100000, min_price=1000, geo='', max_age=0, debug_mode=0, pause_general=20, pause_between_links=2, max_count_of_retry=5, ignore_reserv=False, ignore_promotion=True, one_time_start=True, one_file_for_link=True, parse_views=True, save_xlsx=True, use_webdriver=True)
+2026-01-29 12:31:45.810 | DEBUG    | __main__:fetch_data:149 - Попытка 1: 429
+2026-01-29 12:31:45.811 | INFO     | __main__:change_ip:450 - Сейчас бы была смена ip, но мы без прокси
+2026-01-29 12:31:45.812 | WARNING  | __main__:fetch_data:161 - ⚠️ Блокировка 429! Пауза 10 сек...

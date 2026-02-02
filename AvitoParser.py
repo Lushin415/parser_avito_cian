@@ -7,7 +7,7 @@ from loguru import logger
 
 from lang import *
 from load_config import save_avito_config, load_avito_config
-from parser_cls import AvitoParse
+from avito_parser import AvitoParse
 from tg_sender import SendAdToTg
 from vk_sender import SendAdToVK
 from version import VERSION
