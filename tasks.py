@@ -31,29 +31,7 @@ def run_avito_parsing(task_id: str, avito_url: str, pages: int,
 
         parser = AvitoParse(config=config, stop_event=stop_event)
 
-        # ✅ ДОБАВЛЯЕМ ЦИКЛ!
-        while not stop_event.is_set():
-            try:
-                parser.parse()
-
-                # Если разовый запуск — выходим
-                if config.one_time_start:
-                    logger.info(f"[Task {task_id}] Avito: разовый парсинг завершён")
-                    break
-
-                # Иначе ждём и парсим снова
-                logger.info(f"[Task {task_id}] Avito: пауза {config.pause_general} сек")
-
-                # Ждём с проверкой stop_event каждую секунду
-                for _ in range(config.pause_general):
-                    if stop_event.is_set():
-                        logger.info(f"[Task {task_id}] Avito: остановлен пользователем")
-                        break
-                    time.sleep(1)
-
-            except Exception as e:
-                logger.error(f"[Task {task_id}] Ошибка в цикле Avito: {e}")
-                time.sleep(30)  # Пауза перед повтором при ошибке
+        parser.start()
 
         results["avito"] = {
             "status": "completed",
@@ -69,6 +47,7 @@ def run_avito_parsing(task_id: str, avito_url: str, pages: int,
             "status": "failed",
             "error": str(e)
         }
+
 
 def run_cian_parsing(task_id: str, cian_url: str, pages: int,
                      notification_bot_token: str, notification_chat_id: int,
@@ -108,29 +87,7 @@ def run_cian_parsing(task_id: str, cian_url: str, pages: int,
 
         parser = CianParser(config=config, stop_event=stop_event)
 
-        # ✅ ДОБАВЛЯЕМ ЦИКЛ!
-        while not stop_event.is_set():
-            try:
-                parser.parse()
-
-                # Если разовый запуск — выходим
-                if config.one_time_start:
-                    logger.info(f"[Task {task_id}] Cian: разовый парсинг завершён")
-                    break
-
-                # Иначе ждём и парсим снова
-                logger.info(f"[Task {task_id}] Cian: пауза {config.pause_general} сек")
-
-                # Ждём с проверкой stop_event каждую секунду
-                for _ in range(config.pause_general):
-                    if stop_event.is_set():
-                        logger.info(f"[Task {task_id}] Cian: остановлен пользователем")
-                        break
-                    time.sleep(1)
-
-            except Exception as e:
-                logger.error(f"[Task {task_id}] Ошибка в цикле Cian: {e}")
-                time.sleep(30)  # Пауза перед повтором при ошибке
+        parser.start()
 
         results["cian"] = {
             "status": "completed",
@@ -146,7 +103,6 @@ def run_cian_parsing(task_id: str, cian_url: str, pages: int,
             "status": "failed",
             "error": str(e)
         }
-
 
 def run_parsing_task(
         task_id: str,

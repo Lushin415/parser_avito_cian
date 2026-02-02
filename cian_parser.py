@@ -327,12 +327,6 @@ class CianParser:
                 location_data=location,
                 description=description,
             )
-            # ← ДОБАВЬ ЭТО ДЛЯ ДИАГНОСТИКИ:
-            # TODO: УДАЛИТь
-            logger.debug(f"🔍 Объявление ID={ad.id}:")
-            logger.debug(f"   Цена = {price_value}")
-            logger.debug(f"   Площадь = {total_meters}")
-            logger.debug(f"   Автор = \"{author.name}\" ({author.type})")
 
             # Статистика граничных случаев
             if price_value == 0:
@@ -715,23 +709,34 @@ class CianParser:
                 logger.info(f"Пауза {self.config.pause_between_links} сек.")
                 time.sleep(self.config.pause_between_links)
 
-        # todo: УДАЛИТЬ
-        # Подсчитываем граничные случаи из логов
-        with open("logs/app.log", "r") as f:
-            log_content = f.read()
 
-        count_price_zero = log_content.count("Цена = 0!")
-        count_area_negative = log_content.count("Площадь = -1!") + log_content.count("Площадь = 0!")
-        count_author_unknown = log_content.count("Автор = \"Неизвестно\"")
+    def start(self):
+        """Запуск парсера с учётом режима"""
+        if self.config.one_time_start:
+            logger.info("Режим: разовый парсинг")
+            self.parse()
+            logger.info("Парсинг завершён (one_time_start=True)")
+            return
 
-        logger.info("=" * 60)
-        logger.info("📊 СТАТИСТИКА ГРАНИЧНЫХ СЛУЧАЕВ:")
-        logger.info(f"   Объявлений с ценой = 0: {self.stats_price_zero}")
-        logger.info(f"   Объявлений с площадью <= 0: {self.stats_area_negative}")
-        logger.info(f"   Объявлений с автором \"Неизвестно\": {self.stats_author_unknown}")
-        logger.info("=" * 60)
-        # todo: УДАЛИТЬ
-        logger.info(f"Парсинг завершён. Хорошие запросы: {self.good_request_count}, плохие: {self.bad_request_count}")
+        logger.info("Режим: непрерывный мониторинг")
+        while True:
+            if self.stop_event and self.stop_event.is_set():
+                logger.info("Парсинг остановлен пользователем")
+                break
+
+            try:
+                self.parse()
+                logger.info(f"Парсинг завершён. Пауза {self.config.pause_general} сек")
+
+                for _ in range(self.config.pause_general):
+                    if self.stop_event and self.stop_event.is_set():
+                        logger.info("Парсинг остановлен во время паузы")
+                        return
+                    time.sleep(1)
+
+            except Exception as err:
+                logger.error(f"Ошибка: {err}. Перезапуск через 30 сек")
+                time.sleep(30)
 
 
 if __name__ == "__main__":
@@ -743,39 +748,17 @@ if __name__ == "__main__":
         logger.error(f"Ошибка загрузки конфига: {err}")
         exit(1)
 
-    # ВАЛИДАЦИЯ ГОРОДА ДО ЦИКЛА:
+    # ✅ Создаём парсер и сразу запускаем
+    # Валидация города произойдёт внутри __init__
     try:
-        # Создаём парсер один раз для валидации
         parser = CianParser(config)
+        parser.start()  # ✅ Вся логика внутри
     except ValueError as err:
-        # Если город невалидный - выходим
+        # Если город невалидный
         logger.error(f"❌ {err}")
         logger.error("❌ Исправьте config.toml и перезапустите программу!")
         exit(1)
     except Exception as err:
-        logger.error(f"❌ Критическая ошибка инициализации: {err}")
+        logger.error(f"❌ Критическая ошибка: {err}")
         exit(1)
-
-    # Теперь запускаем цикл парсинга
-    while True:
-        try:
-            parser.parse()
-
-            if config.one_time_start:
-                logger.info("Парсинг завершён (one_time_start)")
-                break
-
-            logger.info(f"Пауза {config.pause_general} сек")
-            time.sleep(config.pause_general)
-
-        except KeyboardInterrupt:
-            logger.info("Остановлено пользователем (Ctrl+C)")
-            break
-
-        except Exception as err:
-            logger.error(f"Ошибка парсинга: {err}. Перезапуск через 30 сек")
-            import traceback
-
-            logger.error(traceback.format_exc())
-            time.sleep(30)
 

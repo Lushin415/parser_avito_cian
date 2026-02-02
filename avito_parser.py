@@ -51,6 +51,35 @@ class AvitoParse:
 
         log_config(config=self.config, version=VERSION)
 
+    def start(self):
+        """Запуск парсера с учётом режима"""
+        if self.config.one_time_start:
+            logger.info("Режим: разовый парсинг")
+            self.parse()
+            logger.info("Парсинг завершён (one_time_start=True)")
+            return
+
+        logger.info("Режим: непрерывный мониторинг")
+        while True:
+            if self.stop_event and self.stop_event.is_set():
+                logger.info("Парсинг остановлен пользователем")
+                break
+
+            try:
+                self.parse()
+                logger.info(f"Парсинг завершён. Пауза {self.config.pause_general} сек")
+
+                for _ in range(self.config.pause_general):
+                    if self.stop_event and self.stop_event.is_set():
+                        logger.info("Парсинг остановлен во время паузы")
+                        return
+                    time.sleep(1)
+
+            except Exception as err:
+                logger.error(f"Ошибка: {err}. Перезапуск через 30 сек")
+                time.sleep(30)
+
+
     def _parse_area_from_description(self, ads: list[Item]) -> list[Item]:
         """Парсит площадь из описания объявлений"""
         for ad in ads:
@@ -456,8 +485,20 @@ class AvitoParse:
 
     def change_ip(self) -> bool:
         if not self.config.proxy_change_url:
-            logger.info("Сейчас бы была смена ip, но мы без прокси")
-            return False
+            logger.info("⏳ Прокси нет — ждём разблокировки Avito (15 минут)")
+
+            for i in range(900):  # ← ДОБАВИЛИ ОЖИДАНИЕ!
+                if self.stop_event and self.stop_event.is_set():
+                    logger.info("❌ Ожидание прервано")
+                    return False
+                time.sleep(1)
+
+                if (i + 1) % 60 == 0:
+                    minutes_passed = (i + 1) // 60
+                    logger.info(f"⏳ Ожидание: {minutes_passed}/15 минут")
+
+            logger.info("✅ Ожидание завершено")
+            return True
         logger.info("Меняю IP")
         try:
             res = requests.get(url=self.config.proxy_change_url, verify=False)
@@ -564,7 +605,7 @@ def extract_area_from_description(description: str) -> float | None:
                 area = float(area_str)
                 # Фильтр: площадь обычно от 10 до 10000 м²
                 if 10 <= area <= 10000:
-                    logger.debug(f"💡 Площадь найдена: {area} м²")
+
                     return area
             except ValueError:
                 continue
@@ -578,15 +619,5 @@ if __name__ == "__main__":
         logger.error(f"Ошибка загрузки конфига: {err}")
         exit(1)
 
-    while True:
-        try:
-            parser = AvitoParse(config)
-            parser.parse()
-            if config.one_time_start:
-                logger.info("Парсинг завершен т.к. включён one_time_start в настройках")
-                break
-            logger.info(f"Парсинг завершен. Пауза {config.pause_general} сек")
-            time.sleep(config.pause_general)
-        except Exception as err:
-            logger.error(f"Произошла ошибка {err}. Будет повторный запуск через 30 сек.")
-            time.sleep(30)
+    parser = AvitoParse(config)
+    parser.start()

@@ -6,7 +6,7 @@ vk_user_id = []
 urls = [
     "https://www.avito.ru/irkutskaya_oblast/kommercheskaya_nedvizhimost/sdam/ofis-ASgBAgICAkSwCNRWnsMNhNk5?context=H4sIAAAAAAAA_wEtANL_YToxOntzOjg6ImZyb21QYWdlIjtzOjE2OiJzZWFyY2hGb3JtV2lkZ2V0Ijt9F_yIfi0AAAA&f=ASgBAgECA0SwCNRW9BKk2gGeww2E2TkBRcaaDBp7ImZyb20iOjEwMDAwLCJ0byI6MTAwMDAwfQ",
 ]
-count = 3
+count = 5
 keys_word_white_list = []
 keys_word_black_list = []
 seller_black_list = []
@@ -40,7 +40,7 @@ deal_type = "rent_long"
 location = "Москва"
 
 # Количество страниц для парсинга
-count = 3
+count = 1
 
 # Фильтры
 keys_word_white_list = ["коммерческ", "офис", "торговое"]
@@ -56,7 +56,7 @@ min_area = 50
 max_area = 300
 
 # География (если нужна фильтрация по району)
-geo = ""
+geo = "Москва"
 
 # Максимальный возраст объявления в секундах (0 = не проверять)
 max_age = 0
@@ -82,6 +82,6 @@ tg_chat_id = [338908929]
 
 # Сохранение результатов
 save_xlsx = true
-one_time_start = false
+one_time_start = true
 
 #=====================================CIAN==========================
