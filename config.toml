@@ -1,18 +1,29 @@
+# ===== ВАЖНО! =====
+# Этот файл содержит ТОЛЬКО технические настройки парсера
+# Параметры задач (urls, tg_token, tg_chat_id) передаются через API от ParserHub
+
 [avito]
-tg_token = "8374925023:AAG9QwKAfXnwDZ4ZvtjP6zaoaqkEXeZn6p8"
-tg_chat_id = [338908929]
+# Уведомления - задаются через API
+# tg_token = ""  # Передаётся от ParserHub
+# tg_chat_id = []  # Передаётся от ParserHub
 vk_token = ""
 vk_user_id = []
-urls = [
-    "https://www.avito.ru/irkutskaya_oblast/kommercheskaya_nedvizhimost/sdam/ofis-ASgBAgICAkSwCNRWnsMNhNk5?context=H4sIAAAAAAAA_wEtANL_YToxOntzOjg6ImZyb21QYWdlIjtzOjE2OiJzZWFyY2hGb3JtV2lkZ2V0Ijt9F_yIfi0AAAA&f=ASgBAgECA0SwCNRW9BKk2gGeww2E2TkBRcaaDBp7ImZyb20iOjEwMDAwLCJ0byI6MTAwMDAwfQ",
-]
-count = 5
+
+# URLs - задаются через API
+# urls = []  # Передаются от ParserHub
+
+# Количество страниц - задаётся через API
+count = 3  # Default, переопределяется через API
+
+# Фильтры
 keys_word_white_list = []
 keys_word_black_list = []
 seller_black_list = []
-max_price = 100000
-min_price = 10000
+max_price = 0
+min_price = 0
 geo = ""
+
+# Технические настройки
 proxy_string = ""
 proxy_change_url = ""
 pause_general = 20
@@ -26,12 +37,11 @@ one_file_for_link = false
 parse_views = false
 save_xlsx = true
 use_webdriver = true
-#=====================================CIAN==========================
+
+# ===== CIAN =====
 [cian]
-# Ссылки для парсинга (коммерческая недвижимость в аренду)
-urls = [
-    "https://www.cian.ru/cat.php?deal_type=rent&engine_version=2&offer_type=offices&type=4",
-]
+# URLs - задаются через API
+# urls = []  # Передаются от ParserHub
 
 # Тип сделки: "rent_long" (долгосрочная аренда) или "sale" (продажа)
 deal_type = "rent_long"
@@ -39,29 +49,29 @@ deal_type = "rent_long"
 # Город
 location = "Москва"
 
-# Количество страниц для парсинга
-count = 1
+# Количество страниц - задаётся через API
+count = 3  # Default, переопределяется через API
 
 # Фильтры
-keys_word_white_list = ["коммерческ", "офис", "торговое"]
-keys_word_black_list = ["квартира", "студия"]
+keys_word_white_list = []
+keys_word_black_list = []
 seller_black_list = []
 
 # Цена (в рублях)
-max_price = 500000
-min_price = 100000
+max_price = 0
+min_price = 0
 
-# Площадь (в кв.м) - НОВОЕ
-min_area = 50
-max_area = 300
+# Площадь (в кв.м)
+min_area = 0
+max_area = 0
 
-# География (если нужна фильтрация по району)
+# География
 geo = "Москва"
 
 # Максимальный возраст объявления в секундах (0 = не проверять)
 max_age = 0
 
-# Настройки парсинга
+# Технические настройки парсинга
 pause_general = 60
 pause_between_links = 3
 max_count_of_retry = 5
@@ -73,15 +83,12 @@ use_webdriver = true
 proxy_string = ""
 proxy_change_url = ""
 
-# Уведомления (используются общие с [avito])
-# Если нужны отдельные - раскомментируй и заполни:
-tg_token = "8374925023:AAG9QwKAfXnwDZ4ZvtjP6zaoaqkEXeZn6p8"
-tg_chat_id = [338908929]
+# Уведомления - задаются через API
+# tg_token = ""  # Передаётся от ParserHub
+# tg_chat_id = []  # Передаётся от ParserHub
 # vk_token = ""
 # vk_user_id = []
 
 # Сохранение результатов
-save_xlsx = true
-one_time_start = true
-
-#=====================================CIAN==========================
+save_xlsx = false
+one_time_start = false
