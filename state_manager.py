@@ -166,6 +166,7 @@ class MonitoringStateManager:
             if task_id in self._monitored_urls:
                 return False
 
+            import time as _time
             self._monitored_urls[task_id] = {
                 "task_id": task_id,
                 "url": url,
@@ -175,6 +176,7 @@ class MonitoringStateManager:
                 "error_count": 0,
                 "status": "active",  # active, paused, stopped
                 "registered_at": datetime.now(timezone.utc),
+                "started_at": _time.time(),  # unix timestamp для фильтрации объявлений
                 "last_check": None,
                 "last_error": None
             }

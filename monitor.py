@@ -44,16 +44,23 @@ class MonitoredURL:
 class BaseMonitor:
     """Базовый класс для мониторов"""
 
-    def __init__(self, platform: str):
+    def __init__(self, platform: str, num_workers: int = 3):
         self.platform = platform
-        self.session = requests.Session()
         self.db_handler = SQLiteDBHandler()
         self.running = False
         self.task: Optional[asyncio.Task] = None
 
+        # Воркеры: каждый со своей curl_cffi сессией
+        self.num_workers = num_workers
+        self.sessions: List[requests.Session] = [
+            requests.Session() for _ in range(num_workers)
+        ]
+        self._url_queue: Optional[asyncio.Queue] = None
+        self._worker_tasks: List[asyncio.Task] = []
+
         # Тайминги (могут быть переопределены в подклассах из config)
-        self.pause_between_requests = (15, 30)  # мин/макс секунд между URL
-        self.pause_between_cycles = 60  # секунд между полными циклами
+        self.pause_between_requests = (5, 10)  # мин/макс секунд между URL
+        self.pause_between_cycles = 30  # секунд между полными циклами
 
         # Защита от бана: при 403/429 увеличиваем паузу между циклами
         self._block_detected = False
@@ -66,7 +73,7 @@ class BaseMonitor:
         self.total_errors = 0
         self.last_cycle_time = 0
 
-        logger.info(f"{platform.upper()} Monitor инициализирован")
+        logger.info(f"{platform.upper()} Monitor инициализирован ({num_workers} воркеров)")
 
     async def start(self, proxy=None):
         """Запуск мониторинга
@@ -109,103 +116,131 @@ class BaseMonitor:
         logger.success(f"{self.platform} Monitor остановлен")
 
     async def _monitor_loop(self):
-        """Основной цикл мониторинга"""
+        """Основной цикл: раздаёт URL воркерам через очередь"""
         logger.info(f"{self.platform} Monitor: основной цикл запущен")
 
-        while self.running:
-            try:
-                cycle_start = time.time()
+        self._url_queue = asyncio.Queue()
 
-                # Получение списка активных URL
-                monitored_urls = monitoring_state.get_urls_for_platform(self.platform)
+        # Запуск воркеров
+        self._worker_tasks = []
+        for i in range(self.num_workers):
+            task = asyncio.create_task(self._worker(i, self.sessions[i]))
+            self._worker_tasks.append(task)
+        logger.info(f"{self.platform} Monitor: запущено {self.num_workers} воркеров")
 
-                if not monitored_urls:
-                    logger.debug(f"{self.platform}: нет активных URL, ожидание...")
-                    await asyncio.sleep(10)
-                    continue
+        try:
+            while self.running:
+                try:
+                    cycle_start = time.time()
 
-                logger.info(
-                    f"{self.platform} Monitor: начало цикла, "
-                    f"активных URL: {len(monitored_urls)}"
-                )
+                    # Получение списка активных URL
+                    monitored_urls = monitoring_state.get_urls_for_platform(self.platform)
 
-                # Сброс флага блокировки перед циклом
-                self._block_detected = False
+                    if not monitored_urls:
+                        logger.debug(f"{self.platform}: нет активных URL, ожидание...")
+                        await asyncio.sleep(10)
+                        continue
 
-                # Последовательная обработка каждого URL
-                for url_data in monitored_urls:
-                    if not self.running:
-                        break
+                    logger.info(
+                        f"{self.platform} Monitor: начало цикла, "
+                        f"активных URL: {len(monitored_urls)}, воркеров: {self.num_workers}"
+                    )
 
-                    # Если обнаружена блокировка — прерываем цикл
+                    # Сброс флага блокировки перед циклом
+                    self._block_detected = False
+
+                    # Раздаём URL воркерам через очередь
+                    for url_data in monitored_urls:
+                        if self._block_detected or not self.running:
+                            break
+                        await self._url_queue.put(url_data)
+
+                    # Ждём пока все URL обработаны
+                    await self._url_queue.join()
+
+                    # Статистика цикла
+                    cycle_time = time.time() - cycle_start
+                    self.last_cycle_time = cycle_time
+                    self.total_cycles += 1
+
+                    logger.info(
+                        f"{self.platform} Monitor: цикл завершён за {cycle_time:.1f}с, "
+                        f"обработано URL: {len(monitored_urls)}"
+                    )
+
+                    # Пауза между циклами
                     if self._block_detected:
+                        self._consecutive_blocks += 1
+                        cooldown = min(self._block_cooldown * self._consecutive_blocks, 1800)
                         logger.warning(
-                            f"{self.platform}: блокировка обнаружена, "
-                            f"пропускаем оставшиеся URL в этом цикле"
+                            f"{self.platform} Monitor: блокировка #{self._consecutive_blocks}, "
+                            f"увеличенная пауза {cooldown}с"
                         )
-                        break
+                        await asyncio.sleep(cooldown)
+                    else:
+                        self._consecutive_blocks = 0
+                        logger.info(
+                            f"{self.platform} Monitor: пауза {self.pause_between_cycles}с до следующего цикла"
+                        )
+                        await asyncio.sleep(self.pause_between_cycles)
 
-                    try:
-                        await self._process_url(url_data)
-                    except Exception as e:
-                        logger.error(
-                            f"{self.platform}: ошибка обработки {url_data['url']}: {e}"
-                        )
-                        monitoring_state.increment_error(
-                            url_data['task_id'],
-                            error_msg=str(e)
-                        )
-                        self.total_errors += 1
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.error(f"{self.platform} Monitor: ошибка в цикле: {e}")
+                    await asyncio.sleep(30)
 
-                    # Задержка между запросами (rate limiting)
+        except asyncio.CancelledError:
+            logger.info(f"{self.platform} Monitor: получен сигнал остановки")
+        finally:
+            # Остановка воркеров
+            for t in self._worker_tasks:
+                t.cancel()
+            await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+            logger.info(f"{self.platform} Monitor: основной цикл завершён")
+
+    async def _worker(self, worker_id: int, session: requests.Session):
+        """Воркер: берёт URL из очереди, обрабатывает, ждёт паузу"""
+        logger.debug(f"{self.platform} Worker-{worker_id}: запущен")
+
+        try:
+            while True:
+                url_data = await self._url_queue.get()
+                try:
+                    if self._block_detected or not self.running:
+                        # При блокировке — пропускаем
+                        self._url_queue.task_done()
+                        continue
+
+                    await self._process_url(url_data, session)
+
+                    # Пауза между запросами (rate limiting)
                     min_delay, max_delay = self.pause_between_requests
                     delay = random.uniform(min_delay, max_delay)
-                    logger.debug(f"{self.platform}: пауза {delay:.1f}с между запросами")
+                    logger.debug(f"{self.platform} W-{worker_id}: пауза {delay:.1f}с")
                     await asyncio.sleep(delay)
 
-                # Статистика цикла
-                cycle_time = time.time() - cycle_start
-                self.last_cycle_time = cycle_time
-                self.total_cycles += 1
-
-                logger.info(
-                    f"{self.platform} Monitor: цикл завершён за {cycle_time:.1f}с, "
-                    f"обработано URL: {len(monitored_urls)}"
-                )
-
-                # Пауза между циклами
-                if self._block_detected:
-                    # Увеличенная пауза при блокировке (5 мин * количество подряд блокировок, макс 30 мин)
-                    self._consecutive_blocks += 1
-                    cooldown = min(self._block_cooldown * self._consecutive_blocks, 1800)
-                    logger.warning(
-                        f"{self.platform} Monitor: блокировка #{self._consecutive_blocks}, "
-                        f"увеличенная пауза {cooldown}с"
+                except Exception as e:
+                    logger.error(
+                        f"{self.platform} W-{worker_id}: ошибка {url_data['url']}: {e}"
                     )
-                    await asyncio.sleep(cooldown)
-                else:
-                    # Сброс счётчика при успешном цикле
-                    self._consecutive_blocks = 0
-                    logger.info(
-                        f"{self.platform} Monitor: пауза {self.pause_between_cycles}с до следующего цикла"
+                    monitoring_state.increment_error(
+                        url_data['task_id'], error_msg=str(e)
                     )
-                    await asyncio.sleep(self.pause_between_cycles)
+                    self.total_errors += 1
+                finally:
+                    self._url_queue.task_done()
 
-            except asyncio.CancelledError:
-                logger.info(f"{self.platform} Monitor: получен сигнал остановки")
-                break
-            except Exception as e:
-                logger.error(f"{self.platform} Monitor: ошибка в цикле: {e}")
-                await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            logger.debug(f"{self.platform} Worker-{worker_id}: остановлен")
 
-        logger.info(f"{self.platform} Monitor: основной цикл завершён")
-
-    async def _process_url(self, url_data: dict):
+    async def _process_url(self, url_data: dict, session: requests.Session = None):
         """
         Обработка одного URL (должен быть переопределён в подклассах)
 
         Args:
             url_data: Словарь с данными URL из monitoring_state
+            session: curl_cffi сессия воркера
         """
         raise NotImplementedError
 
@@ -214,6 +249,7 @@ class BaseMonitor:
         return {
             "platform": self.platform,
             "running": self.running,
+            "num_workers": self.num_workers,
             "total_cycles": self.total_cycles,
             "total_requests": self.total_requests,
             "total_errors": self.total_errors,
@@ -251,12 +287,12 @@ class AvitoMonitor(BaseMonitor):
             self.proxy = None
             logger.info("Avito Monitor: работаем без прокси")
 
-        # Тайминги из config.toml
+        # Тайминги из config.toml (5-10с между запросами, 30с между циклами)
         self.pause_between_requests = (
-            max(base_config.pause_between_links, 15),
-            max(base_config.pause_between_links * 3, 30)
+            max(base_config.pause_between_links, 5),
+            max(base_config.pause_between_links * 2, 10)
         )
-        self.pause_between_cycles = max(base_config.pause_general, 60)
+        self.pause_between_cycles = max(base_config.pause_general, 30)
         logger.info(
             f"Avito Monitor: тайминги - между запросами {self.pause_between_requests[0]}-{self.pause_between_requests[1]}с, "
             f"между циклами {self.pause_between_cycles}с"
@@ -269,12 +305,13 @@ class AvitoMonitor(BaseMonitor):
         """Запуск мониторинга (переопределяем чтобы передать прокси)"""
         await super().start(proxy=self.proxy)
 
-    async def _process_url(self, url_data: dict):
+    async def _process_url(self, url_data: dict, session: requests.Session = None):
         """Обработка одного Avito URL"""
         url = url_data['url']
         user_id = url_data['user_id']
         task_id = url_data['task_id']
         user_config = url_data['config']
+        session = session or self.sessions[0]
 
         logger.debug(f"Avito: обработка {url} (user={user_id})")
 
@@ -293,6 +330,7 @@ class AvitoMonitor(BaseMonitor):
 
             html = await asyncio.to_thread(
                 self._fetch_html,
+                session,
                 url,
                 cookies,
                 headers
@@ -336,16 +374,36 @@ class AvitoMonitor(BaseMonitor):
 
             logger.info(f"Avito: после фильтрации осталось {len(filtered_items)} объявлений")
 
-            # 5. Проверка против БД (новые объявления)
+            # 5. Фильтр по времени старта мониторинга (только новые объявления)
+            started_at = url_data.get('started_at', 0)
+            if started_at and filtered_items:
+                # Debug: показать значения sortTimeStamp для диагностики
+                sample = filtered_items[0]
+                logger.debug(
+                    f"Avito: started_at={started_at:.0f}, "
+                    f"sample sortTimeStamp={sample.sortTimeStamp}, "
+                    f"sample id={sample.id}"
+                )
+                before_count = len(filtered_items)
+                started_at_ms = started_at * 1000  # sortTimeStamp в миллисекундах
+                filtered_items = [
+                    ad for ad in filtered_items
+                    if ad.sortTimeStamp and ad.sortTimeStamp > started_at_ms
+                ]
+                skipped = before_count - len(filtered_items)
+                if skipped:
+                    logger.debug(f"Avito: отфильтровано {skipped} старых объявлений (до старта мониторинга)")
+
+            # 6. Проверка против БД (не отправлять повторно)
             new_items = [ad for ad in filtered_items if not self._is_viewed(ad)]
 
             logger.info(f"Avito: новых объявлений: {len(new_items)}")
 
-            # 6. Отправка уведомлений (TODO: Phase 3 - через queue)
+            # 7. Отправка уведомлений
             if new_items:
                 await self._send_notifications(new_items, user_config)
 
-            # 7. Сохранение в БД
+            # 8. Сохранение в БД
             if new_items:
                 self.db_handler.add_record_from_page(new_items)
 
@@ -357,10 +415,10 @@ class AvitoMonitor(BaseMonitor):
             monitoring_state.increment_error(task_id, str(e))
             raise
 
-    def _fetch_html(self, url: str, cookies: dict, headers: dict) -> Optional[str]:
+    def _fetch_html(self, session: requests.Session, url: str, cookies: dict, headers: dict) -> Optional[str]:
         """Синхронная загрузка HTML (вызывается через asyncio.to_thread)"""
         try:
-            response = self.session.get(
+            response = session.get(
                 url=url,
                 headers=headers,
                 cookies=cookies,
@@ -453,12 +511,12 @@ class CianMonitor(BaseMonitor):
             self.proxy = None
             logger.info("Cian Monitor: работаем без прокси")
 
-        # Тайминги из config.toml
+        # Тайминги из config.toml (5-10с между запросами, 30с между циклами)
         self.pause_between_requests = (
-            max(base_config.pause_between_links, 15),
-            max(base_config.pause_between_links * 3, 30)
+            max(base_config.pause_between_links, 5),
+            max(base_config.pause_between_links * 2, 10)
         )
-        self.pause_between_cycles = max(base_config.pause_general, 60)
+        self.pause_between_cycles = max(base_config.pause_general, 30)
         logger.info(
             f"Cian Monitor: тайминги - между запросами {self.pause_between_requests[0]}-{self.pause_between_requests[1]}с, "
             f"между циклами {self.pause_between_cycles}с"
@@ -471,12 +529,13 @@ class CianMonitor(BaseMonitor):
         """Запуск мониторинга (переопределяем чтобы передать прокси)"""
         await super().start(proxy=self.proxy)
 
-    async def _process_url(self, url_data: dict):
+    async def _process_url(self, url_data: dict, session: requests.Session = None):
         """Обработка одного Cian URL"""
         url = url_data['url']
         user_id = url_data['user_id']
         task_id = url_data['task_id']
         user_config = url_data['config']
+        session = session or self.sessions[0]
 
         logger.debug(f"Cian: обработка {url} (user={user_id})")
 
@@ -495,6 +554,7 @@ class CianMonitor(BaseMonitor):
 
             html = await asyncio.to_thread(
                 self._fetch_html,
+                session,
                 url,
                 cookies,
                 headers
@@ -521,16 +581,28 @@ class CianMonitor(BaseMonitor):
 
             logger.info(f"Cian: после фильтрации осталось {len(filtered_items)} объявлений")
 
-            # 5. Проверка против БД
+            # 5. Фильтр по времени старта мониторинга
+            started_at = url_data.get('started_at', 0)
+            if started_at:
+                before_count = len(filtered_items)
+                filtered_items = [
+                    ad for ad in filtered_items
+                    if ad.timestamp and ad.timestamp > started_at
+                ]
+                skipped = before_count - len(filtered_items)
+                if skipped:
+                    logger.debug(f"Cian: отфильтровано {skipped} старых объявлений (до старта мониторинга)")
+
+            # 6. Проверка против БД
             new_items = [ad for ad in filtered_items if not self._is_viewed(ad)]
 
             logger.info(f"Cian: новых объявлений: {len(new_items)}")
 
-            # 6. Отправка уведомлений
+            # 7. Отправка уведомлений
             if new_items:
                 await self._send_notifications(new_items, user_config)
 
-            # 7. Сохранение в БД
+            # 8. Сохранение в БД
             if new_items:
                 self._save_to_db(new_items)
 
@@ -542,10 +614,10 @@ class CianMonitor(BaseMonitor):
             monitoring_state.increment_error(task_id, str(e))
             raise
 
-    def _fetch_html(self, url: str, cookies: dict, headers: dict) -> Optional[str]:
+    def _fetch_html(self, session: requests.Session, url: str, cookies: dict, headers: dict) -> Optional[str]:
         """Синхронная загрузка HTML"""
         try:
-            response = self.session.get(
+            response = session.get(
                 url=url,
                 headers=headers,
                 cookies=cookies,

@@ -248,16 +248,26 @@ class CookieManager:
                 except asyncio.CancelledError:
                     pass
 
-            if self.browser:
-                await self.browser.close()
+            try:
+                if self.browser:
+                    await self.browser.close()
+                    self.browser = None
+            except Exception as e:
+                logger.warning(f"Ошибка при закрытии браузера (игнорируем): {e}")
                 self.browser = None
 
-            if self.playwright:
-                await self.playwright.stop()
+            try:
+                if self.playwright:
+                    await self.playwright.stop()
+                    self.playwright = None
+            except Exception:
                 self.playwright = None
 
-            if self.playwright_context:
-                await self.playwright_context.__aexit__(None, None, None)
+            try:
+                if self.playwright_context:
+                    await self.playwright_context.__aexit__(None, None, None)
+                    self.playwright_context = None
+            except Exception:
                 self.playwright_context = None
 
             logger.info("Браузер остановлен")
@@ -323,9 +333,9 @@ class CookieManager:
             if self.browser is None:
                 await self.start(proxy=proxy, headless=headless)
 
-            # Получение нового User-Agent
-            from common_data import get_random_user_agent
-            user_agent = get_random_user_agent()
+            # User-Agent должен совпадать с navigator.platform='Win32' из stealth-скрипта
+            # Фиксированный Windows UA — как в старом парсере
+            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
             # Получение cookies через Playwright
             cookies = await self._fetch_cookies_from_browser(platform, user_agent, proxy)
