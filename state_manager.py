@@ -1,12 +1,12 @@
 import threading
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from models_api import TaskStatus, TaskProgress, TaskResponse
 import uuid
 
 
 class TaskStateManager:
-    """Управление состоянием задач парсинга"""
+    """Управление состоянием задач парсинга (старый режим - для обратной совместимости)"""
 
     def __init__(self):
         self._tasks: Dict[str, dict] = {}
@@ -104,7 +104,7 @@ class TaskStateManager:
         self.update_task(
             task_id,
             status=TaskStatus.STOPPED,
-            completed_at=datetime.now(timezone.utc)  
+            completed_at=datetime.now(timezone.utc)
         )
 
     def get_stop_event(self, task_id: str) -> Optional[threading.Event]:
@@ -122,5 +122,195 @@ class TaskStateManager:
         return False
 
 
-# Глобальный экземпляр
-task_manager = TaskStateManager()
+class MonitoringStateManager:
+    """
+    Управление состоянием мониторинга (Phase 2)
+
+    Хранит URL registry: task_id -> {url, platform, user_id, config, error_count, status}
+    """
+
+    def __init__(self):
+        self._monitored_urls: Dict[str, dict] = {}  # task_id -> url_data
+        self._lock = threading.Lock()
+
+        # Метрики
+        self._metrics = {
+            "total_registered": 0,
+            "total_stopped": 0,
+            "total_errors": 0,
+            "last_error": None
+        }
+
+    def register_url(
+        self,
+        task_id: str,
+        url: str,
+        platform: str,
+        user_id: int,
+        config: dict
+    ) -> bool:
+        """
+        Регистрация URL для мониторинга
+
+        Args:
+            task_id: Уникальный ID задачи
+            url: URL для мониторинга
+            platform: "avito" или "cian"
+            user_id: ID пользователя
+            config: Конфиг фильтров пользователя
+
+        Returns:
+            bool: True если успешно зарегистрирован
+        """
+        with self._lock:
+            if task_id in self._monitored_urls:
+                return False
+
+            self._monitored_urls[task_id] = {
+                "task_id": task_id,
+                "url": url,
+                "platform": platform.lower(),
+                "user_id": user_id,
+                "config": config,
+                "error_count": 0,
+                "status": "active",  # active, paused, stopped
+                "registered_at": datetime.now(timezone.utc),
+                "last_check": None,
+                "last_error": None
+            }
+
+            self._metrics["total_registered"] += 1
+            return True
+
+    def unregister_url(self, task_id: str) -> bool:
+        """
+        Удаление URL из мониторинга
+
+        Args:
+            task_id: ID задачи
+
+        Returns:
+            bool: True если успешно удалён
+        """
+        with self._lock:
+            if task_id in self._monitored_urls:
+                self._monitored_urls[task_id]["status"] = "stopped"
+                del self._monitored_urls[task_id]
+                self._metrics["total_stopped"] += 1
+                return True
+            return False
+
+    def get_url_data(self, task_id: str) -> Optional[dict]:
+        """Получение данных URL"""
+        with self._lock:
+            return self._monitored_urls.get(task_id)
+
+    def get_urls_for_platform(self, platform: str) -> List[dict]:
+        """
+        Получение всех активных URL для платформы
+
+        Args:
+            platform: "avito" или "cian"
+
+        Returns:
+            List[dict]: Список данных URL
+        """
+        with self._lock:
+            return [
+                url_data.copy()
+                for url_data in self._monitored_urls.values()
+                if url_data["platform"] == platform.lower()
+                   and url_data["status"] == "active"
+            ]
+
+    def get_all_active_urls(self) -> List[dict]:
+        """Получение всех активных URL"""
+        with self._lock:
+            return [
+                url_data.copy()
+                for url_data in self._monitored_urls.values()
+                if url_data["status"] == "active"
+            ]
+
+    def increment_error(self, task_id: str, error_msg: str = None):
+        """
+        Увеличить счётчик ошибок для URL
+
+        После 5 последовательных ошибок - пауза URL
+        """
+        with self._lock:
+            if task_id not in self._monitored_urls:
+                return
+
+            url_data = self._monitored_urls[task_id]
+            url_data["error_count"] += 1
+            url_data["last_error"] = error_msg
+            url_data["last_check"] = datetime.now(timezone.utc)
+
+            self._metrics["total_errors"] += 1
+            self._metrics["last_error"] = {
+                "task_id": task_id,
+                "error": error_msg,
+                "timestamp": datetime.now(timezone.utc)
+            }
+
+            # Паузим после 5 ошибок
+            if url_data["error_count"] >= 5:
+                url_data["status"] = "paused"
+                from loguru import logger
+                logger.warning(
+                    f"URL {url_data['url']} приостановлен после 5 ошибок"
+                )
+
+    def reset_error_count(self, task_id: str):
+        """Сброс счётчика ошибок (после успешного запроса)"""
+        with self._lock:
+            if task_id in self._monitored_urls:
+                self._monitored_urls[task_id]["error_count"] = 0
+                self._monitored_urls[task_id]["last_check"] = datetime.now(timezone.utc)
+
+    def pause_url(self, task_id: str):
+        """Приостановка мониторинга URL"""
+        with self._lock:
+            if task_id in self._monitored_urls:
+                self._monitored_urls[task_id]["status"] = "paused"
+
+    def resume_url(self, task_id: str):
+        """Возобновление мониторинга URL"""
+        with self._lock:
+            if task_id in self._monitored_urls:
+                self._monitored_urls[task_id]["status"] = "active"
+                self._monitored_urls[task_id]["error_count"] = 0
+
+    def get_metrics(self) -> dict:
+        """Получение метрик мониторинга"""
+        with self._lock:
+            active_count = sum(
+                1 for url in self._monitored_urls.values()
+                if url["status"] == "active"
+            )
+            paused_count = sum(
+                1 for url in self._monitored_urls.values()
+                if url["status"] == "paused"
+            )
+
+            return {
+                "total_monitored": len(self._monitored_urls),
+                "active": active_count,
+                "paused": paused_count,
+                "total_registered": self._metrics["total_registered"],
+                "total_stopped": self._metrics["total_stopped"],
+                "total_errors": self._metrics["total_errors"],
+                "last_error": self._metrics["last_error"]
+            }
+
+    def get_status(self, task_id: str) -> Optional[str]:
+        """Получение статуса URL"""
+        with self._lock:
+            url_data = self._monitored_urls.get(task_id)
+            return url_data["status"] if url_data else None
+
+
+# Глобальные экземпляры
+task_manager = TaskStateManager()  # Старый режим
+monitoring_state = MonitoringStateManager()  # Новый режим (Phase 2)

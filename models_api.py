@@ -17,6 +17,10 @@ class TaskStatus(str, Enum):
     COMPLETED = "completed"  # Завершено успешно
     FAILED = "failed"  # Ошибка
     STOPPED = "stopped"  # Остановлено пользователем
+    # Phase 2: новые статусы для мониторинга
+    MONITORING = "monitoring"  # Активный мониторинг
+    PAUSED = "paused"  # Приостановлен после ошибок
+    ERROR = "error"  # Критическая ошибка
 
 
 class ParseRequest(BaseModel):
@@ -88,3 +92,11 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = "1.0.0"
     uptime_seconds: float
+
+
+class MonitorHealthResponse(BaseModel):
+    """Ответ на monitor health check (Phase 2)"""
+    status: str = "ok"
+    monitors: Dict[str, Any] = {}  # avito_monitor, cian_monitor
+    monitoring_state: Dict[str, Any] = {}  # метрики из monitoring_state
+    cookie_manager: Dict[str, Any] = {}  # информация о cookies

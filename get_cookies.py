@@ -18,6 +18,7 @@ BAD_IP_TITLE = "проблема с ip"
 class PlaywrightClient:
     def __init__(
             self,
+            browser=None,  # НОВОЕ: принимаем уже запущенный браузер
             proxy: Proxy = None,
             headless: bool = True,
             user_agent: Optional[str] = None,
@@ -27,7 +28,8 @@ class PlaywrightClient:
         self.proxy_split_obj = self.get_proxy_obj()
         self.headless = headless
         self.user_agent = user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
-        self.context = self.page = self.browser = None
+        self.browser = browser  # Используем внешний браузер если передан
+        self.context = self.page = None
         self.stop_event = stop_event
 
     @staticmethod
@@ -76,26 +78,33 @@ class PlaywrightClient:
         return dict(pair.split("=", 1) for pair in cookie_str.split("; ") if "=" in pair)
 
     async def launch_browser(self):
-        ensure_playwright_installed("chromium")
-        stealth = Stealth()
-        self.playwright_context = stealth.use_async(async_playwright())
-        playwright = await self.playwright_context.__aenter__()
-        self.playwright = playwright
+        # Если браузер уже передан извне (из CookieManager), пропускаем запуск
+        if self.browser is not None:
+            logger.debug("Используется внешний браузер (из CookieManager)")
+        else:
+            # Старая логика: запускаем свой браузер
+            logger.debug("Запуск собственного браузера")
+            ensure_playwright_installed("chromium")
+            stealth = Stealth()
+            self.playwright_context = stealth.use_async(async_playwright())
+            playwright = await self.playwright_context.__aenter__()
+            self.playwright = playwright
 
-        launch_args = {
-            "headless": self.headless,
-            "chromium_sandbox": False,
-            "args": [
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--start-maximized",
-                "--window-size=1920,1080",
-            ]
-        }
+            launch_args = {
+                "headless": self.headless,
+                "chromium_sandbox": False,
+                "args": [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--start-maximized",
+                    "--window-size=1920,1080",
+                ]
+            }
 
-        self.browser = await playwright.chromium.launch(**launch_args)
+            self.browser = await playwright.chromium.launch(**launch_args)
 
+        # Создание контекста и страницы (всегда)
         context_args = {
             "user_agent": self.user_agent,
             "viewport": {"width": 1920, "height": 1080},
@@ -129,26 +138,45 @@ class PlaywrightClient:
             await self.check_block(self.page, self.context)
             raw_cookie = await self.page.evaluate("() => document.cookie")
             cookie_dict = self.parse_cookie_string(raw_cookie)
-            if cookie_dict.get("ft"):
-                logger.info("Cookies получены")
-                return cookie_dict
+
+            # Проверяем наличие любых cookies (не только ft для Avito)
+            if cookie_dict:
+                # Для Avito проверяем ft, для Cian - любые cookies
+                if "avito.ru" in url and cookie_dict.get("ft"):
+                    logger.info("Cookies получены (Avito)")
+                    return cookie_dict
+                elif "cian.ru" in url and len(cookie_dict) > 0:
+                    logger.info("Cookies получены (Cian)")
+                    return cookie_dict
+                elif "avito.ru" not in url and "cian.ru" not in url:
+                    # Для других сайтов - любые cookies
+                    logger.info("Cookies получены")
+                    return cookie_dict
+
             await asyncio.sleep(5)
 
         logger.warning("Не удалось получить cookies")
         return {}
 
     async def extract_cookies(self, url: str) -> dict:
+        was_external_browser = self.browser is not None  # Запоминаем, был ли браузер внешним
+
         try:
             await self.launch_browser()
             return await self.load_page(url)
         finally:
-            if hasattr(self, "browser"):
-                if self.browser:
+            # Закрываем только контекст (страница закроется автоматически)
+            if self.context:
+                await self.context.close()
+
+            # Закрываем браузер ТОЛЬКО если мы его сами запустили (не из CookieManager)
+            if not was_external_browser:
+                if hasattr(self, "browser") and self.browser:
                     await self.browser.close()
-            if hasattr(self, "playwright"):
-                await self.playwright.stop()
-            if hasattr(self, "playwright_context") and self.playwright_context:
-                await self.playwright_context.__aexit__(None, None, None)
+                if hasattr(self, "playwright") and self.playwright:
+                    await self.playwright.stop()
+                if hasattr(self, "playwright_context") and self.playwright_context:
+                    await self.playwright_context.__aexit__(None, None, None)
 
     async def get_cookies(self, url: str) -> dict:
         return await self.extract_cookies(url)

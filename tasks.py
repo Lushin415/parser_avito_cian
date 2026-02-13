@@ -1,3 +1,11 @@
+"""
+tasks.py - Legacy код для старого режима парсинга (Phase 1)
+
+В Phase 2 (Monitoring Mode) этот файл НЕ используется.
+Регистрация URL происходит напрямую в api.py через monitoring_state.
+
+Оставлен для обратной совместимости.
+"""
 import threading
 import time
 from typing import Dict, Any

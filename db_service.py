@@ -21,6 +21,10 @@ class SQLiteDBHandler:
     def _create_table(self):
         """Создает таблицу viewed, если она не существует."""
         with sqlite3.connect(self.db_name) as conn:
+            # Phase 2: включение WAL mode для concurrent access
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")  # Оптимизация производительности
+
             cursor = conn.cursor()
             cursor.execute(
                 """
