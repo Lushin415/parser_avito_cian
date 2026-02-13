@@ -2,7 +2,6 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/../cianparser/.idea/cianparser.iml" filepath="$PROJECT_DIR$/../cianparser/.idea/cianparser.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/parser_avito_cian.iml" filepath="$PROJECT_DIR$/.idea/parser_avito_cian.iml" />
     </modules>
   </component>

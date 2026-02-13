@@ -87,53 +87,8 @@ class CianParser:
         logger.info("Работаем без прокси")
         return None
 
-    def get_cookies(self, max_retries: int = 1, delay: float = 2.0) -> dict | None:
-        """Получение cookies через Playwright (обход блокировок)"""
-        if not self.config.use_webdriver:
-            return None
-
-        for attempt in range(1, max_retries + 1):
-            if self.stop_event and self.stop_event.is_set():
-                return None
-
-            try:
-                # Используем случайный ID объявления для получения cookies
-                random_id = str(random.randint(100000000, 999999999))
-                test_url = f"https://www.cian.ru/rent/flat/{random_id}/"
-
-                cookies, user_agent = asyncio.run(
-                    get_cookies(proxy=self.proxy_obj, headless=True, stop_event=self.stop_event))
-
-                if cookies:
-                    logger.info(f"[get_cookies] Успешно получены cookies с попытки {attempt}")
-                    self.headers["user-agent"] = user_agent
-                    return cookies
-                else:
-                    raise ValueError("Пустой результат cookies")
-            except Exception as e:
-                logger.warning(f"[get_cookies] Попытка {attempt} не удалась: {e}")
-                if attempt < max_retries:
-                    time.sleep(delay * attempt)
-                else:
-                    logger.error(f"[get_cookies] Все {max_retries} попытки не удались")
-                    return None
-
-    def save_cookies(self) -> None:
-        """Сохраняет cookies в JSON файл"""
-        with open("cookies_cian.json", "w") as f:
-            json.dump(self.session.cookies.get_dict(), f)
-
-    def load_cookies(self) -> None:
-        """Загружает cookies из JSON файла"""
-        try:
-            with open("cookies_cian.json", "r") as f:
-                cookies = json.load(f)
-                jar = RequestsCookieJar()
-                for k, v in cookies.items():
-                    jar.set(k, v)
-                self.session.cookies.update(jar)
-        except FileNotFoundError:
-            pass
+    # УДАЛЕНО: get_cookies(), save_cookies(), load_cookies()
+    # Теперь управление cookies происходит через CookieManager (Phase 1)
 
     def fetch_data(self, url, retries=3, backoff_factor=1):
         """Загрузка страницы с обходом блокировок"""
@@ -165,12 +120,12 @@ class CianParser:
                 if response.status_code in [302, 403, 429]:
                     self.bad_request_count += 1
                     self.session = requests.Session()
-                    if attempt >= 3:
-                        self.cookies = self.get_cookies()
+                    # УДАЛЕНО: self.cookies = self.get_cookies()
+                    # NOTE: В Phase 2 Monitor будет обновлять cookies через CookieManager
                     self.change_ip()
                     raise requests.RequestsError(f"Блокировка: {response.status_code}")
 
-                self.save_cookies()
+                # УДАЛЕНО: self.save_cookies()
                 self.good_request_count += 1
                 return response.text
 
