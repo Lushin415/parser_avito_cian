@@ -67,6 +67,9 @@ class BaseMonitor:
         self._block_cooldown = 300  # 5 минут при блокировке
         self._consecutive_blocks = 0  # счётчик подряд блокировок
 
+        # Очистка БД раз в сутки
+        self._last_cleanup = 0
+
         # Метрики
         self.total_cycles = 0
         self.total_requests = 0
@@ -167,6 +170,13 @@ class BaseMonitor:
                         f"{self.platform} Monitor: цикл завершён за {cycle_time:.1f}с, "
                         f"обработано URL: {len(monitored_urls)}"
                     )
+
+                    # Очистка БД раз в сутки (записи старше 7 дней)
+                    if time.time() - self._last_cleanup > 86400:
+                        deleted = self.db_handler.cleanup_old_records(max_age_days=7)
+                        if deleted:
+                            logger.info(f"{self.platform}: очистка БД — удалено {deleted} старых записей")
+                        self._last_cleanup = time.time()
 
                     # Пауза между циклами
                     if self._block_detected:
@@ -394,18 +404,18 @@ class AvitoMonitor(BaseMonitor):
                 if skipped:
                     logger.debug(f"Avito: отфильтровано {skipped} старых объявлений (до старта мониторинга)")
 
-            # 6. Проверка против БД (не отправлять повторно)
-            new_items = [ad for ad in filtered_items if not self._is_viewed(ad)]
+            # 6. Проверка против БД (per-user: каждый пользователь получает уведомление)
+            new_items = [ad for ad in filtered_items if not self._is_viewed(ad, user_id)]
 
-            logger.info(f"Avito: новых объявлений: {len(new_items)}")
+            logger.info(f"Avito: новых объявлений: {len(new_items)} (user={user_id})")
 
             # 7. Отправка уведомлений
             if new_items:
                 await self._send_notifications(new_items, user_config)
 
-            # 8. Сохранение в БД
+            # 8. Сохранение в БД (per-user)
             if new_items:
-                self.db_handler.add_record_from_page(new_items)
+                self.db_handler.add_record_from_page(new_items, user_id=user_id)
 
             # Сброс счётчика ошибок при успехе
             monitoring_state.reset_error_count(task_id)
@@ -465,9 +475,9 @@ class AvitoMonitor(BaseMonitor):
         # Вызываем filter_ads
         return self.parser.filter_ads(items)
 
-    def _is_viewed(self, ad: Item) -> bool:
-        """Проверка просмотрено ли объявление"""
-        return self.db_handler.record_exists(ad.id, ad.priceDetailed.value)
+    def _is_viewed(self, ad: Item, user_id: int) -> bool:
+        """Проверка просмотрено ли объявление для конкретного пользователя"""
+        return self.db_handler.record_exists(ad.id, ad.priceDetailed.value, user_id=user_id)
 
     async def _send_notifications(self, items: List[Item], user_config: dict):
         """Phase 3: Отправка уведомлений через notification queue"""
@@ -593,18 +603,18 @@ class CianMonitor(BaseMonitor):
                 if skipped:
                     logger.debug(f"Cian: отфильтровано {skipped} старых объявлений (до старта мониторинга)")
 
-            # 6. Проверка против БД
-            new_items = [ad for ad in filtered_items if not self._is_viewed(ad)]
+            # 6. Проверка против БД (per-user)
+            new_items = [ad for ad in filtered_items if not self._is_viewed(ad, user_id)]
 
-            logger.info(f"Cian: новых объявлений: {len(new_items)}")
+            logger.info(f"Cian: новых объявлений: {len(new_items)} (user={user_id})")
 
             # 7. Отправка уведомлений
             if new_items:
                 await self._send_notifications(new_items, user_config)
 
-            # 8. Сохранение в БД
+            # 8. Сохранение в БД (per-user)
             if new_items:
-                self._save_to_db(new_items)
+                self._save_to_db(new_items, user_id=user_id)
 
             # Сброс ошибок
             monitoring_state.reset_error_count(task_id)
@@ -660,33 +670,34 @@ class CianMonitor(BaseMonitor):
         # Фильтрация
         return self.parser.filter_ads(items)
 
-    def _is_viewed(self, ad: CianItem) -> bool:
-        """Проверка просмотрено ли объявление"""
+    def _is_viewed(self, ad: CianItem, user_id: int) -> bool:
+        """Проверка просмотрено ли объявление для конкретного пользователя"""
         if not ad.price or ad.price.value <= 0:
             return False
 
         ad_id = int(ad.id) if ad.id.isdigit() else abs(hash(ad.id))
-        return self.db_handler.record_exists(ad_id, ad.price.value)
+        return self.db_handler.record_exists(ad_id, ad.price.value, user_id=user_id)
 
-    def _save_to_db(self, items: List[CianItem]):
-        """Сохранение в БД"""
+    def _save_to_db(self, items: List[CianItem], user_id: int = 0):
+        """Сохранение в БД (per-user)"""
         try:
             import sqlite3
+            now = time.time()
             records = []
             for ad in items:
                 if ad.price and ad.price.value > 0:
                     ad_id = int(ad.id) if ad.id.isdigit() else abs(hash(ad.id))
-                    records.append((ad_id, ad.price.value))
+                    records.append((ad_id, ad.price.value, user_id, now))
 
             if records:
                 with sqlite3.connect(self.db_handler.db_name) as conn:
                     cursor = conn.cursor()
                     cursor.executemany(
-                        "INSERT OR REPLACE INTO viewed (id, price) VALUES (?, ?)",
+                        "INSERT OR IGNORE INTO viewed (id, price, user_id, created_at) VALUES (?, ?, ?, ?)",
                         records
                     )
                     conn.commit()
-                logger.debug(f"Cian: сохранено {len(records)} в БД")
+                logger.debug(f"Cian: сохранено {len(records)} в БД (user={user_id})")
 
         except Exception as e:
             logger.error(f"Cian: ошибка сохранения в БД: {e}")

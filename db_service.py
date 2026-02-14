@@ -1,4 +1,5 @@
 import sqlite3
+import time
 
 from models import Item
 
@@ -26,48 +27,86 @@ class SQLiteDBHandler:
             conn.execute("PRAGMA synchronous=NORMAL")  # Оптимизация производительности
 
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS viewed (
-                    id INTEGER,
-                    price INTEGER
+
+            # Проверяем наличие колонки user_id (миграция)
+            cursor.execute("PRAGMA table_info(viewed)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if "user_id" not in columns or "created_at" not in columns:
+                if columns:
+                    # Таблица существует без нужных колонок — пересоздаём
+                    cursor.execute("DROP TABLE viewed")
+                cursor.execute(
+                    """
+                    CREATE TABLE viewed (
+                        id INTEGER,
+                        price INTEGER,
+                        user_id INTEGER,
+                        created_at REAL,
+                        UNIQUE(id, price, user_id)
+                    )
+                    """
                 )
-                """
-            )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_viewed_lookup ON viewed(id, price, user_id)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_viewed_cleanup ON viewed(created_at)"
+                )
+            else:
+                # Таблица уже актуальна — убедимся что индексы есть
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_viewed_lookup ON viewed(id, price, user_id)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_viewed_cleanup ON viewed(created_at)"
+                )
+
             conn.commit()
 
-    def add_record(self, ad: Item):
+    def add_record(self, ad: Item, user_id: int = 0):
         """Добавляет новую запись в таблицу viewed."""
 
         with sqlite3.connect(self.db_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO viewed (id, price) VALUES (?, ?)",
-                (ad.id, ad.priceDetailed.value),
+                "INSERT OR IGNORE INTO viewed (id, price, user_id, created_at) VALUES (?, ?, ?, ?)",
+                (ad.id, ad.priceDetailed.value, user_id, time.time()),
             )
             conn.commit()
 
-    def add_record_from_page(self, ads: list[Item]):
+    def add_record_from_page(self, ads: list[Item], user_id: int = 0):
         """Добавляет несколько записей в таблицу viewed."""
-        records = [(ad.id, ad.priceDetailed.value) for ad in ads]
+        now = time.time()
+        records = [(ad.id, ad.priceDetailed.value, user_id, now) for ad in ads]
 
         with sqlite3.connect(self.db_name) as conn:
             cursor = conn.cursor()
             cursor.executemany(
                 """
-                INSERT OR REPLACE INTO viewed (id, price)
-                VALUES (?, ?)
+                INSERT OR IGNORE INTO viewed (id, price, user_id, created_at)
+                VALUES (?, ?, ?, ?)
                 """,
                 records,
             )
             conn.commit()
 
-    def record_exists(self, record_id, price):
-        """Проверяет, существует ли запись с заданными id и price."""
+    def record_exists(self, record_id, price, user_id: int = 0):
+        """Проверяет, существует ли запись с заданными id, price и user_id."""
         with sqlite3.connect(self.db_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT 1 FROM viewed WHERE id = ? AND price = ?",
-                (record_id, price),
+                "SELECT 1 FROM viewed WHERE id = ? AND price = ? AND user_id = ?",
+                (record_id, price, user_id),
             )
             return cursor.fetchone() is not None
+
+    def cleanup_old_records(self, max_age_days: int = 7) -> int:
+        """Удаляет записи старше max_age_days дней. Возвращает кол-во удалённых."""
+        cutoff = time.time() - (max_age_days * 86400)
+        with sqlite3.connect(self.db_name) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM viewed WHERE created_at < ?", (cutoff,))
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted

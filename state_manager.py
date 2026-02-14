@@ -1,6 +1,10 @@
+import json
+import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Dict, Optional, List
+from loguru import logger
 from models_api import TaskStatus, TaskProgress, TaskResponse
 import uuid
 
@@ -127,11 +131,13 @@ class MonitoringStateManager:
     Управление состоянием мониторинга (Phase 2)
 
     Хранит URL registry: task_id -> {url, platform, user_id, config, error_count, status}
+    Персистентность: SQLite таблица monitored_urls — восстановление после рестарта.
     """
 
-    def __init__(self):
+    def __init__(self, db_name: str = "database.db"):
         self._monitored_urls: Dict[str, dict] = {}  # task_id -> url_data
         self._lock = threading.Lock()
+        self._db_name = db_name
 
         # Метрики
         self._metrics = {
@@ -140,6 +146,114 @@ class MonitoringStateManager:
             "total_errors": 0,
             "last_error": None
         }
+
+        # Создание таблицы и восстановление состояния
+        self._init_db()
+        self._restore_from_db()
+
+    def _init_db(self):
+        """Создание таблицы monitored_urls если не существует"""
+        with sqlite3.connect(self._db_name) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS monitored_urls (
+                    task_id TEXT PRIMARY KEY,
+                    url TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    config TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    started_at REAL NOT NULL,
+                    registered_at REAL NOT NULL
+                )
+                """
+            )
+            conn.commit()
+
+    def _restore_from_db(self):
+        """Восстановление активных URL из БД после рестарта"""
+        with sqlite3.connect(self._db_name) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT task_id, url, platform, user_id, config, status, started_at, registered_at "
+                "FROM monitored_urls WHERE status IN ('active', 'paused')"
+            )
+            rows = cursor.fetchall()
+
+        if not rows:
+            return
+
+        for row in rows:
+            task_id, url, platform, user_id, config_json, status, started_at, registered_at = row
+            try:
+                config = json.loads(config_json)
+            except json.JSONDecodeError:
+                logger.error(f"Ошибка парсинга config для {task_id}, пропускаю")
+                continue
+
+            self._monitored_urls[task_id] = {
+                "task_id": task_id,
+                "url": url,
+                "platform": platform,
+                "user_id": user_id,
+                "config": config,
+                "error_count": 0,
+                "status": status,
+                "registered_at": datetime.fromtimestamp(registered_at, tz=timezone.utc),
+                "started_at": started_at,
+                "last_check": None,
+                "last_error": None
+            }
+
+        self._metrics["total_registered"] = len(self._monitored_urls)
+        logger.info(f"Восстановлено {len(self._monitored_urls)} URL из БД")
+
+    def _db_save(self, url_data: dict):
+        """Сохранение URL в БД"""
+        try:
+            with sqlite3.connect(self._db_name) as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO monitored_urls
+                    (task_id, url, platform, user_id, config, status, started_at, registered_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        url_data["task_id"],
+                        url_data["url"],
+                        url_data["platform"],
+                        url_data["user_id"],
+                        json.dumps(url_data["config"], ensure_ascii=False),
+                        url_data["status"],
+                        url_data["started_at"],
+                        url_data["registered_at"].timestamp(),
+                    )
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Ошибка сохранения в БД: {e}")
+
+    def _db_delete(self, task_id: str):
+        """Удаление URL из БД"""
+        try:
+            with sqlite3.connect(self._db_name) as conn:
+                conn.execute("DELETE FROM monitored_urls WHERE task_id = ?", (task_id,))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Ошибка удаления из БД: {e}")
+
+    def _db_update_status(self, task_id: str, status: str):
+        """Обновление статуса в БД"""
+        try:
+            with sqlite3.connect(self._db_name) as conn:
+                conn.execute(
+                    "UPDATE monitored_urls SET status = ? WHERE task_id = ?",
+                    (status, task_id)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Ошибка обновления статуса в БД: {e}")
 
     def register_url(
         self,
@@ -166,8 +280,7 @@ class MonitoringStateManager:
             if task_id in self._monitored_urls:
                 return False
 
-            import time as _time
-            self._monitored_urls[task_id] = {
+            url_data = {
                 "task_id": task_id,
                 "url": url,
                 "platform": platform.lower(),
@@ -176,13 +289,16 @@ class MonitoringStateManager:
                 "error_count": 0,
                 "status": "active",  # active, paused, stopped
                 "registered_at": datetime.now(timezone.utc),
-                "started_at": _time.time(),  # unix timestamp для фильтрации объявлений
+                "started_at": time.time(),  # unix timestamp для фильтрации объявлений
                 "last_check": None,
                 "last_error": None
             }
-
+            self._monitored_urls[task_id] = url_data
             self._metrics["total_registered"] += 1
-            return True
+
+        # Сохранение в БД (вне lock — IO операция)
+        self._db_save(url_data)
+        return True
 
     def unregister_url(self, task_id: str) -> bool:
         """
@@ -196,11 +312,13 @@ class MonitoringStateManager:
         """
         with self._lock:
             if task_id in self._monitored_urls:
-                self._monitored_urls[task_id]["status"] = "stopped"
                 del self._monitored_urls[task_id]
                 self._metrics["total_stopped"] += 1
-                return True
-            return False
+            else:
+                return False
+
+        self._db_delete(task_id)
+        return True
 
     def get_url_data(self, task_id: str) -> Optional[dict]:
         """Получение данных URL"""
@@ -240,6 +358,7 @@ class MonitoringStateManager:
 
         После 5 последовательных ошибок - пауза URL
         """
+        paused = False
         with self._lock:
             if task_id not in self._monitored_urls:
                 return
@@ -259,10 +378,13 @@ class MonitoringStateManager:
             # Паузим после 5 ошибок
             if url_data["error_count"] >= 5:
                 url_data["status"] = "paused"
-                from loguru import logger
+                paused = True
                 logger.warning(
                     f"URL {url_data['url']} приостановлен после 5 ошибок"
                 )
+
+        if paused:
+            self._db_update_status(task_id, "paused")
 
     def reset_error_count(self, task_id: str):
         """Сброс счётчика ошибок (после успешного запроса)"""
@@ -276,6 +398,9 @@ class MonitoringStateManager:
         with self._lock:
             if task_id in self._monitored_urls:
                 self._monitored_urls[task_id]["status"] = "paused"
+            else:
+                return
+        self._db_update_status(task_id, "paused")
 
     def resume_url(self, task_id: str):
         """Возобновление мониторинга URL"""
@@ -283,6 +408,9 @@ class MonitoringStateManager:
             if task_id in self._monitored_urls:
                 self._monitored_urls[task_id]["status"] = "active"
                 self._monitored_urls[task_id]["error_count"] = 0
+            else:
+                return
+        self._db_update_status(task_id, "active")
 
     def get_metrics(self) -> dict:
         """Получение метрик мониторинга"""
