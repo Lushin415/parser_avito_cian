@@ -92,7 +92,7 @@ class BaseMonitor:
         logger.info(f"Запуск {self.platform} Monitor...")
 
         # Запуск браузера для cookies (передаём прокси если есть)
-        await cookie_manager.start(proxy=proxy)
+        # await cookie_manager.start(proxy=proxy)
 
         # Создание asyncio task
         self.task = asyncio.create_task(self._monitor_loop())
@@ -114,7 +114,8 @@ class BaseMonitor:
                 pass
 
         # Остановка браузера
-        await cookie_manager.stop()
+        #await cookie_manager.stop()
+
 
         logger.success(f"{self.platform} Monitor остановлен")
 
@@ -327,7 +328,7 @@ class AvitoMonitor(BaseMonitor):
 
         try:
             # 1. Получение cookies и User-Agent
-            cookies, user_agent = await cookie_manager.get_cookies("avito")
+            cookies, user_agent = await cookie_manager.get_cookies("avito", proxy=self.proxy)
 
             if not cookies:
                 logger.warning(f"Avito: нет валидных cookies, пропускаю {url}")
@@ -434,7 +435,7 @@ class AvitoMonitor(BaseMonitor):
                 cookies=cookies,
                 impersonate="chrome",
                 timeout=20,
-                verify=False
+                #verify=False
             )
 
             if response.status_code == 200:
@@ -470,10 +471,10 @@ class AvitoMonitor(BaseMonitor):
         )
 
         # Переконфигурируем parser
-        self.parser.config = config
+        parser = AvitoParse(config=config)
 
         # Вызываем filter_ads
-        return self.parser.filter_ads(items)
+        return parser.filter_ads(items)
 
     def _is_viewed(self, ad: Item, user_id: int) -> bool:
         """Проверка просмотрено ли объявление для конкретного пользователя"""
@@ -551,7 +552,7 @@ class CianMonitor(BaseMonitor):
 
         try:
             # 1. Получение cookies
-            cookies, user_agent = await cookie_manager.get_cookies("cian")
+            cookies, user_agent = await cookie_manager.get_cookies("cian", proxy=self.proxy)
 
             if not cookies:
                 logger.warning(f"Cian: нет валидных cookies, пропускаю {url}")
@@ -633,7 +634,7 @@ class CianMonitor(BaseMonitor):
                 cookies=cookies,
                 impersonate="chrome",
                 timeout=20,
-                verify=False
+                #verify=False
             )
 
             if response.status_code == 200:
@@ -665,10 +666,10 @@ class CianMonitor(BaseMonitor):
         )
 
         # Переконфигурируем parser
-        self.parser.config = config
+        parser = CianParser(config=config)
 
         # Фильтрация
-        return self.parser.filter_ads(items)
+        return parser.filter_ads(items)
 
     def _is_viewed(self, ad: CianItem, user_id: int) -> bool:
         """Проверка просмотрено ли объявление для конкретного пользователя"""

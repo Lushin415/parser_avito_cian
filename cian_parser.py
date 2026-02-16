@@ -20,6 +20,37 @@ from tg_sender import SendAdToTg
 from vk_sender import SendAdToVK
 from version import VERSION
 from xlsx_service import XLSXHandler
+from datetime import datetime, timedelta
+import re
+
+def cian_date_to_timestamp(text: str) -> float | None:
+    now = datetime.now()
+    text = text.strip().lower()
+
+    if text.startswith("сегодня"):
+        time_part = text.split(",")[1].strip()
+        dt = datetime.strptime(time_part, "%H:%M")
+        return datetime(now.year, now.month, now.day, dt.hour, dt.minute).timestamp()
+
+    if text.startswith("вчера"):
+        time_part = text.split(",")[1].strip()
+        dt = datetime.strptime(time_part, "%H:%M")
+        y = now - timedelta(days=1)
+        return datetime(y.year, y.month, y.day, dt.hour, dt.minute).timestamp()
+
+    match = re.search(r"(\d+)\s+(\w+),?\s*(\d{2}:\d{2})?", text)
+    if match:
+        day = int(match.group(1))
+        month_map = {
+            "янв": 1, "фев": 2, "мар": 3, "апр": 4, "май": 5, "июн": 6,
+            "июл": 7, "авг": 8, "сен": 9, "окт": 10, "ноя": 11, "дек": 12,
+        }
+        month = month_map.get(match.group(2))
+        time_part = match.group(3) or "00:00"
+        dt = datetime.strptime(time_part, "%H:%M")
+        return datetime(now.year, month, day, dt.hour, dt.minute).timestamp()
+
+    return None
 
 
 class CianParser:
@@ -269,6 +300,21 @@ class CianParser:
                 if price_value > 0:
                     logger.debug(f"   💡 Цена найдена в описании: {price_value}")
 
+            time_block = offer.select_one('[data-name="TimeLabel"]')
+
+            date_text = None
+
+            if time_block:
+                absolute = time_block.select_one('.x02c2df23--adeab9--absolute')
+                relative = time_block.select_one('.x02c2df23--adeab9--relative')
+
+                if absolute:
+                    date_text = absolute.get_text(strip=True)
+                elif relative:
+                    date_text = relative.get_text(strip=True)
+
+            timestamp = int(cian_date_to_timestamp(date_text)) if date_text else None
+
             # Создаём объявление
             ad = CianItem(
                 id=ad_id,
@@ -281,6 +327,7 @@ class CianParser:
                 author=author,
                 location_data=location,
                 description=description,
+                timestamp=timestamp,
             )
 
             # Статистика граничных случаев
