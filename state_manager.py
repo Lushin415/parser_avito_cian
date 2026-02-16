@@ -440,6 +440,26 @@ class MonitoringStateManager:
             url_data = self._monitored_urls.get(task_id)
             return url_data["status"] if url_data else None
 
+    def stop_all_tasks(self):
+        """
+        Остановка всех активных задач (graceful shutdown)
+
+        Вызывается при остановке сервиса для корректного обновления
+        статусов всех задач в БД.
+        """
+        with self._lock:
+            active_tasks = [
+                task_id for task_id, data in self._monitored_urls.items()
+                if data["status"] in ("active", "paused")
+            ]
+
+        # Обновляем статусы в БД (вне lock)
+        for task_id in active_tasks:
+            self._db_update_status(task_id, "stopped")
+
+        logger.info(f"🛑 Graceful shutdown: остановлено {len(active_tasks)} задач")
+        return len(active_tasks)
+
 
 # Глобальные экземпляры
 task_manager = TaskStateManager()  # Старый режим
