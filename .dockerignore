@@ -1,12 +1,22 @@
+.git
+.github
+.idea
 .secret.txt
-result/*
-logs/*
-assets/*
-cookies.json
-state.json
-venv
 __pycache__
+*.pyc
+venv
 *.bak
 *.bat
+
+# Данные (монтируются как volumes)
 database.db
+cookies.json
+cookies_cian.json
+logs/*
+result/*
+
+# Тесты и временные файлы
+Tests/
+Reports/
+tmp/
 december.txt

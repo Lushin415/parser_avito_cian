@@ -38,6 +38,12 @@ parse_views = false
 save_xlsx = true
 use_webdriver = true
 
+# Уведомления администратора при сбое прокси
+# bot_token = токен PurserHub бота, user_ids = Telegram ID администраторов
+admin_bot_token = "8374925023:AAG9QwKAfXnwDZ4ZvtjP6zaoaqkEXeZn6p8"
+admin_user_ids = [338908929]
+
+
 # ===== CIAN =====
 [cian]
 # URLs - задаются через API
@@ -79,7 +85,7 @@ max_count_of_retry = 5
 # Использовать браузер для обхода блокировок
 use_webdriver = true
 
-# Прокси (если нужно)
+# Прокси (если нужно, иначе берётся из [avito])
 proxy_string = ""
 proxy_change_url = ""
 

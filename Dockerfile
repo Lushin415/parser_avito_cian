@@ -1,8 +1,8 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 LABEL org.opencontainers.image.source=https://github.com/Duff89/parser_avito
 
-RUN apt-get update && apt-get install \
--y --ignore-missing --no-install-recommends --no-install-suggests \
+# Зависимости для Playwright Chromium
+RUN apt-get update && apt-get install -y --no-install-recommends \
 	libatk-bridge2.0-0t64 \
 	libatk1.0-0t64 \
 	libatspi2.0-0t64 \
@@ -19,18 +19,26 @@ RUN apt-get update && apt-get install \
 	libxfixes3 \
 	libxrandr2 \
 	libxkbcommon0 \
-	libasound2 \
-	&& apt-get autopurge \
-	&& apt-get clean \
-	&& apt-get distclean
+	libasound2t64 \
+	curl \
+	&& rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /app/requirements.txt
 WORKDIR /app
-RUN pip install --upgrade pip && pip install -r requirements.txt
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+	&& pip install --no-cache-dir -r requirements.txt
 
 RUN python -m playwright install chromium-headless-shell
 
-COPY . /app
-COPY entrypoint.sh /
+COPY . .
 
-ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
+# Директории для данных
+RUN mkdir -p /app/logs /app/result
+
+EXPOSE 8009
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+	CMD curl -sf http://localhost:8009/health || exit 1
+
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8009"]

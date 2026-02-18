@@ -1,29 +1,80 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+import asyncio
+import os
+import signal
 import time
 from datetime import datetime, timezone  # ✅ ДОБАВЛЕНО: timezone
 from loguru import logger
+from pydantic import BaseModel
 
 from models_api import (
     ParseRequest,
     StartParseResponse,
     TaskResponse,
+    TaskProgress,
+    SourceType,
     StopParseResponse,
     HealthResponse,
+    MonitorHealthResponse,
     TaskStatus
 )
-from state_manager import task_manager
-from tasks import run_parsing_task
-
-# Инициализация FastAPI
-app = FastAPI(
-    title="Realty Parser Service",
-    description="Сервис парсинга недвижимости (Avito + Cian)",
-    version="1.0.0"
-)
+from state_manager import task_manager, monitoring_state
+# Phase 2: run_parsing_task больше не используется (мониторинг через monitoring_state)
 
 # Время запуска сервиса (для health check)
 start_time = time.time()
+
+
+# Phase 2: Lifespan events для запуска/остановки мониторов
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager для управления мониторами"""
+    logger.info("=" * 60)
+    logger.info("ЗАПУСК СЕРВИСА: Realty Parser (Phase 2 - Monitoring Mode)")
+    logger.info("=" * 60)
+
+    # Startup: запуск очереди уведомлений и мониторов
+    from monitor import avito_monitor, cian_monitor
+    from notification_queue import notification_queue
+
+    logger.info("Запуск очереди уведомлений...")
+    await notification_queue.start()
+
+    logger.info("Запуск мониторов...")
+    await avito_monitor.start()
+    await cian_monitor.start()
+    logger.success("Мониторы и очередь уведомлений запущены")
+
+    yield
+
+    # Shutdown: остановка мониторов, затем очереди
+    logger.info("=" * 60)
+    logger.info("ОСТАНОВКА СЕРВИСА")
+    logger.info("=" * 60)
+
+    # Сначала обновляем статусы всех задач в БД (graceful shutdown)
+    logger.info("Обновление статусов задач в БД...")
+    stopped_count = monitoring_state.stop_all_tasks()
+    logger.info(f"✅ Обновлено {stopped_count} задач в статус 'stopped'")
+
+    logger.info("Остановка мониторов...")
+    await avito_monitor.stop()
+    await cian_monitor.stop()
+
+    logger.info("Остановка очереди уведомлений...")
+    await notification_queue.stop()
+    logger.success("Сервис остановлен")
+
+
+# Инициализация FastAPI с lifespan
+app = FastAPI(
+    title="Realty Parser Service",
+    description="Сервис мониторинга недвижимости (Avito + Cian) - Monitoring Mode",
+    version="2.0.0",  # Phase 2
+    lifespan=lifespan
+)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -31,23 +82,65 @@ async def health_check():
     """Проверка работоспособности сервиса"""
     return HealthResponse(
         status="ok",
-        version="1.0.0",
+        version="2.0.0",  # Phase 2
         uptime_seconds=time.time() - start_time
     )
 
 
-@app.post("/parse/start", response_model=StartParseResponse)
-async def start_parsing(
-        request: ParseRequest,
-        background_tasks: BackgroundTasks
-):
+@app.get("/monitor/health", response_model=MonitorHealthResponse)
+async def monitor_health():
     """
-    Запустить парсинг недвижимости
+    Phase 2: Проверка здоровья мониторов
+
+    Возвращает:
+    - Статус Avito/Cian мониторов
+    - Метрики мониторинга (активные URL, ошибки, циклы)
+    - Информацию о cookies (возраст, TTL)
+    """
+    from monitor import avito_monitor, cian_monitor
+    from cookie_manager import cookie_manager
+
+    return MonitorHealthResponse(
+        status="ok",
+        monitors={
+            "avito": avito_monitor.get_metrics(),
+            "cian": cian_monitor.get_metrics()
+        },
+        monitoring_state=monitoring_state.get_metrics(),
+        cookie_manager=cookie_manager.get_cache_info()
+    )
+
+
+@app.get("/notifications/health")
+async def notifications_health():
+    """
+    Phase 3: Метрики очереди уведомлений
+
+    Возвращает:
+    - Размер очереди
+    - Количество отправленных/ошибочных/дропнутых сообщений
+    - Rate limit
+    """
+    from notification_queue import notification_queue
+
+    return {
+        "status": "ok",
+        **notification_queue.get_metrics()
+    }
+
+
+@app.post("/parse/start", response_model=StartParseResponse)
+async def start_parsing(request: ParseRequest):
+    """
+    Phase 2: Запустить мониторинг недвижимости
+
+    Вместо запуска отдельного парсера, регистрирует URL в Monitor.
+    Monitor будет периодически проверять первую страницу и уведомлять о новых объявлениях.
 
     - **user_id**: ID пользователя в Telegram
     - **avito_url**: Ссылка Avito с фильтрами (опционально)
     - **cian_url**: Ссылка Cian с фильтрами (опционально)
-    - **pages**: Количество страниц для парсинга
+    - **pages**: Игнорируется в режиме мониторинга (всегда 1 страница)
     - **notification_bot_token**: Токен бота для уведомлений
     - **notification_chat_id**: Chat ID для уведомлений
     """
@@ -59,32 +152,77 @@ async def start_parsing(
             detail="Необходимо указать хотя бы одну ссылку (Avito или Cian)"
         )
 
-    # Создаём задачу
-    task_id = task_manager.create_task(
-        user_id=request.user_id,
-        avito_url=str(request.avito_url) if request.avito_url else None,
-        cian_url=str(request.cian_url) if request.cian_url else None,
-        pages=request.pages
-    )
+    # Подготовка конфига пользователя (фильтры)
+    user_config = {
+        "tg_token": request.notification_bot_token,
+        "tg_chat_id": [str(request.notification_chat_id)],
+        "min_price": 0,  # TODO: добавить в ParseRequest
+        "max_price": 999_999_999,
+        "keys_word_white_list": [],
+        "keys_word_black_list": [],
+        "seller_black_list": [],
+        "geo": None,
+        "max_age": 24 * 60 * 60,
+        "ignore_reserv": True,
+        "ignore_promotion": False
+    }
 
-    logger.info(f"Создана задача {task_id} для пользователя {request.user_id}")
+    registered_tasks = []
 
-    # Запускаем парсинг в фоне
-    background_tasks.add_task(
-        run_parsing_task,
-        task_id=task_id,
-        user_id=request.user_id,
-        avito_url=str(request.avito_url) if request.avito_url else None,
-        cian_url=str(request.cian_url) if request.cian_url else None,
-        pages=request.pages,
-        notification_bot_token=request.notification_bot_token,
-        notification_chat_id=request.notification_chat_id
-    )
+    # Регистрация Avito URL
+    if request.avito_url:
+        import uuid
+        avito_task_id = f"avito_{uuid.uuid4()}"
+        success = monitoring_state.register_url(
+            task_id=avito_task_id,
+            url=str(request.avito_url),
+            platform="avito",
+            user_id=request.user_id,
+            config=user_config
+        )
+        if success:
+            registered_tasks.append(avito_task_id)
+            logger.info(f"Зарегистрирован Avito URL для мониторинга: {avito_task_id}")
+
+    # Регистрация Cian URL
+    if request.cian_url:
+        import uuid
+        cian_task_id = f"cian_{uuid.uuid4()}"
+
+        # Для Cian добавляем специфичные поля
+        cian_config = user_config.copy()
+        cian_config.update({
+            "location": "Москва",  # TODO: извлечь из URL
+            "deal_type": "rent_long",
+            "min_area": 0,
+            "max_area": 999_999
+        })
+
+        success = monitoring_state.register_url(
+            task_id=cian_task_id,
+            url=str(request.cian_url),
+            platform="cian",
+            user_id=request.user_id,
+            config=cian_config
+        )
+        if success:
+            registered_tasks.append(cian_task_id)
+            logger.info(f"Зарегистрирован Cian URL для мониторинга: {cian_task_id}")
+
+    if not registered_tasks:
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось зарегистрировать ни один URL"
+        )
+
+    # Возвращаем первый task_id (для обратной совместимости)
+    # В реальности зарегистрировано может быть 2 task_id (avito + cian)
+    primary_task_id = registered_tasks[0]
 
     return StartParseResponse(
-        task_id=task_id,
-        status=TaskStatus.PENDING,
-        message="Парсинг запущен",
+        task_id=primary_task_id,
+        status=TaskStatus.MONITORING,
+        message=f"Мониторинг запущен (зарегистрировано URL: {len(registered_tasks)})",
         started_at=datetime.now(timezone.utc)
     )
 
@@ -92,10 +230,41 @@ async def start_parsing(
 @app.get("/parse/status/{task_id}", response_model=TaskResponse)
 async def get_status(task_id: str):
     """
-    Получить статус задачи парсинга
+    Phase 2: Получить статус задачи/мониторинга
 
     - **task_id**: ID задачи
     """
+    # Проверяем в monitoring_state (новый режим)
+    url_data = monitoring_state.get_url_data(task_id)
+
+    if url_data:
+        # Phase 2: конвертируем в TaskResponse
+        status_map = {
+            "active": TaskStatus.MONITORING,
+            "paused": TaskStatus.PAUSED,
+            "stopped": TaskStatus.STOPPED
+        }
+
+        # Конвертируем platform строку в SourceType enum
+        platform = url_data["platform"]
+        source = SourceType.AVITO if platform == "avito" else SourceType.CIAN
+
+        return TaskResponse(
+            task_id=task_id,
+            user_id=url_data["user_id"],
+            status=status_map.get(url_data["status"], TaskStatus.MONITORING),
+            progress=TaskProgress(
+                source=source,  # Теперь это SourceType enum
+                current_page=1,  # Всегда 1 в режиме мониторинга
+                found_ads=0,
+                filtered_ads=0
+            ),
+            started_at=url_data["registered_at"],
+            updated_at=url_data.get("last_check"),
+            error_message=url_data.get("last_error")
+        )
+
+    # Fallback: проверяем в старом task_manager
     task = task_manager.get_task(task_id)
 
     if not task:
@@ -110,10 +279,35 @@ async def get_status(task_id: str):
 @app.post("/parse/stop/{task_id}", response_model=StopParseResponse)
 async def stop_parsing(task_id: str):
     """
-    Остановить парсинг
+    Phase 2: Остановить мониторинг
+
+    Удаляет URL из реестра мониторинга.
 
     - **task_id**: ID задачи
     """
+    # Проверяем в monitoring_state (новый режим)
+    url_data = monitoring_state.get_url_data(task_id)
+
+    if url_data:
+        # Phase 2: удаление из мониторинга
+        success = monitoring_state.unregister_url(task_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Не удалось остановить мониторинг"
+            )
+
+        logger.info(f"Мониторинг остановлен: {task_id} ({url_data['url']})")
+
+        return StopParseResponse(
+            task_id=task_id,
+            status=TaskStatus.STOPPED,
+            message="Мониторинг остановлен",
+            stopped_at=datetime.now(timezone.utc)
+        )
+
+    # Fallback: проверяем в старом task_manager (обратная совместимость)
     task = task_manager.get_task(task_id)
 
     if not task:
@@ -129,7 +323,7 @@ async def stop_parsing(task_id: str):
             detail=f"Задача уже завершена со статусом: {task.status}"
         )
 
-    # Запрашиваем остановку
+    # Запрашиваем остановку (старый режим)
     success = task_manager.request_stop(task_id)
 
     if not success:
@@ -148,17 +342,55 @@ async def stop_parsing(task_id: str):
     )
 
 
+class ProxyUpdateRequest(BaseModel):
+    proxy_string: str
+    proxy_change_url: str
+
+
+@app.get("/config/proxy")
+async def get_proxy_config():
+    """Получить текущие настройки прокси из config.toml"""
+    from load_config import get_proxy_config
+    return get_proxy_config()
+
+
+@app.post("/config/proxy")
+async def update_proxy_config(request: ProxyUpdateRequest):
+    """Обновить настройки прокси (proxy_string и proxy_change_url) в config.toml для Avito и Cian"""
+    from load_config import save_proxy_config
+    try:
+        save_proxy_config(request.proxy_string, request.proxy_change_url)
+        logger.info(f"Настройки прокси обновлены: {request.proxy_string[:20]}...")
+        return {"status": "ok", "message": "Настройки прокси обновлены"}
+    except Exception as e:
+        logger.error(f"Ошибка обновления прокси: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/restart")
+async def restart_service():
+    """Перезапустить сервис — Docker поднимет его заново с обновлёнными настройками"""
+    async def _shutdown():
+        await asyncio.sleep(0.5)  # Дать время на отправку ответа
+        logger.info("Получена команда перезапуска от администратора. Завершение процесса...")
+        os.kill(os.getpid(), signal.SIGTERM)
+    asyncio.create_task(_shutdown())
+    return {"status": "restarting", "message": "Сервис перезапускается..."}
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Обработка всех необработанных исключений"""
+    import traceback
     logger.error(f"Необработанное исключение: {exc}")
+    logger.error(traceback.format_exc())
     return JSONResponse(
         status_code=500,
-        content={"detail": "Внутренняя ошибка сервера"}
+        content={"detail": f"Внутренняя ошибка сервера: {str(exc)}"}
     )
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8009)

@@ -1,2 +1,29 @@
 # created by virtualenv automatically
 .secret.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Runtime data (не коммитим)
+database.db
+cookies.json
+cookies_cian.json
+logs/
+Reports/
+result/
+tmp/
+
+# IDE
+.idea/
+.vscode/
+*.swp

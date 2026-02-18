@@ -54,24 +54,24 @@ class AvitoParse:
     def start(self):
         """Запуск парсера с учётом режима"""
         if self.config.one_time_start:
-            logger.info("Режим: разовый парсинг")
+            logger.info("Режим: разовый мониторинга")
             self.parse()
-            logger.info("Парсинг завершён (one_time_start=True)")
+            logger.info("Мониторинг завершён (one_time_start=True)")
             return
 
         logger.info("Режим: непрерывный мониторинг")
         while True:
             if self.stop_event and self.stop_event.is_set():
-                logger.info("Парсинг остановлен пользователем")
+                logger.info("Мониторинг остановлен пользователем")
                 break
 
             try:
                 self.parse()
-                logger.info(f"Парсинг завершён. Пауза {self.config.pause_general} сек")
+                logger.info(f"Мониторинг завершён. Пауза {self.config.pause_general} сек")
 
                 for _ in range(self.config.pause_general):
                     if self.stop_event and self.stop_event.is_set():
-                        logger.info("Парсинг остановлен во время паузы")
+                        logger.info("Мониторинг остановлен во время паузы")
                         return
                     time.sleep(1)
 
@@ -118,48 +118,8 @@ class AvitoParse:
         logger.info("Работаем без прокси")
         return None
 
-    def get_cookies(self, max_retries: int = 1, delay: float = 2.0) -> dict | None:
-        if not self.config.use_webdriver:
-            return
-
-        for attempt in range(1, max_retries + 1):
-            if self.stop_event and self.stop_event.is_set():
-                return None
-
-            try:
-                cookies, user_agent = asyncio.run(
-                    get_cookies(proxy=self.proxy_obj, headless=True, stop_event=self.stop_event))
-                if cookies:
-                    logger.info(f"[get_cookies] Успешно получены cookies с попытки {attempt}")
-
-                    self.headers["user-agent"] = user_agent
-                    return cookies
-                else:
-                    raise ValueError("Пустой результат cookies")
-            except Exception as e:
-                logger.warning(f"[get_cookies] Попытка {attempt} не удалась: {e}")
-                if attempt < max_retries:
-                    time.sleep(delay * attempt)  # увеличиваем задержку
-                else:
-                    logger.error(f"[get_cookies] Все {max_retries} попытки не удались")
-                    return None
-
-    def save_cookies(self) -> None:
-        """Сохраняет cookies из requests.Session в JSON-файл."""
-        with open("cookies.json", "w") as f:
-            json.dump(self.session.cookies.get_dict(), f)
-
-    def load_cookies(self) -> None:
-        """Загружает cookies из JSON-файла в requests.Session."""
-        try:
-            with open("cookies.json", "r") as f:
-                cookies = json.load(f)
-                jar = RequestsCookieJar()
-                for k, v in cookies.items():
-                    jar.set(k, v)
-                self.session.cookies.update(jar)
-        except FileNotFoundError:
-            pass
+    # УДАЛЕНО: get_cookies(), save_cookies(), load_cookies()
+    # Теперь управление cookies происходит через CookieManager (Phase 1)
 
     def fetch_data(self, url, retries=3, backoff_factor=1):
         proxy_data = None
@@ -190,8 +150,8 @@ class AvitoParse:
                     self.bad_request_count += 1
                     logger.warning(f"⚠️ Блокировка Avito: код {response.status_code}")
                     self.session = requests.Session()
-                    if attempt >= 3:
-                        self.cookies = self.get_cookies()
+                    # УДАЛЕНО: self.cookies = self.get_cookies()
+                    # NOTE: В Phase 2 Monitor будет обновлять cookies через CookieManager
                     self.change_ip()
                     if response.status_code == 429:
                         backoff_time = min(attempt * 10, 60)  # 10, 20, 30 сек (макс 60)
@@ -199,7 +159,7 @@ class AvitoParse:
                         time.sleep(backoff_time)
                     raise requests.RequestsError(f"Слишком много запросов: {response.status_code}")
 
-                self.save_cookies()
+                # УДАЛЕНО: self.save_cookies()
                 self.good_request_count += 1
                 return response.text
             except requests.RequestsError as e:

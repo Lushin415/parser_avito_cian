@@ -1,23 +1,27 @@
-# In case you use podman-compose - it's recommended to install it from github. See: https://github.com/containers/podman-compose/issues/1275
-
 services:
-  parser_avito:
-    container_name: avito
-    image: ghcr.io/duff89/parser_avito:latest
-      #build:
-      #  context: .
-      #  dockerfile: Dockerfile
-        #tags:
-        #  - localhost/parser_avito:latest
-    restart: always
+  realty-monitor:
+    container_name: realty-monitor
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8009:8009"
     volumes:
-       - ./config.toml:/app/config.toml:ro
-       - ./cookies.json:/app/cookies.json:Z
-       - ./result:/app/result:Z
-       - type: bind
-         source: database.db
-         target: /app/database.db
-         bind:
-           create_host_path: false
-           selinux: Z
-       #- $PWD/state.json:/app/state.json:Z
+      # Конфиг (read-only)
+      - ./config.toml:/app/config.toml:ro
+      # Персистентные данные (БД с пользователями и viewed-записями)
+      - ./database.db:/app/database.db
+      # Cookies (обновляются Playwright-ом)
+      - ./cookies.json:/app/cookies.json
+      - ./cookies_cian.json:/app/cookies_cian.json
+      # Логи
+      - ./logs:/app/logs
+    environment:
+      - TZ=Europe/Moscow
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8009/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
