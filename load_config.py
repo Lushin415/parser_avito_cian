@@ -24,6 +24,36 @@ def save_avito_config(config: dict):
         tomli_w.dump(config, f)
 
 
+def get_proxy_config(path: str = "config.toml") -> dict:
+    """Получить текущие настройки прокси из config.toml"""
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+    avito_data = data.get("avito", {})
+    return {
+        "proxy_string": avito_data.get("proxy_string", ""),
+        "proxy_change_url": avito_data.get("proxy_change_url", ""),
+    }
+
+
+def save_proxy_config(proxy_string: str, proxy_change_url: str, path: str = "config.toml"):
+    """Сохранить настройки прокси для Avito и Cian в config.toml"""
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    if "avito" not in data:
+        data["avito"] = {}
+    data["avito"]["proxy_string"] = proxy_string
+    data["avito"]["proxy_change_url"] = proxy_change_url
+
+    if "cian" not in data:
+        data["cian"] = {}
+    data["cian"]["proxy_string"] = proxy_string
+    data["cian"]["proxy_change_url"] = proxy_change_url
+
+    with Path(path).open("wb") as f:
+        tomli_w.dump(data, f)
+
+
 def load_cian_config(path: str = "config.toml") -> CianConfig:
     """Загружает конфигурацию для парсера Циан"""
     with open(path, "rb") as f:

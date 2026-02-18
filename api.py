@@ -1,9 +1,13 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import asyncio
+import os
+import signal
 import time
 from datetime import datetime, timezone  # ✅ ДОБАВЛЕНО: timezone
 from loguru import logger
+from pydantic import BaseModel
 
 from models_api import (
     ParseRequest,
@@ -67,7 +71,7 @@ async def lifespan(app: FastAPI):
 # Инициализация FastAPI с lifespan
 app = FastAPI(
     title="Realty Parser Service",
-    description="Сервис парсинга недвижимости (Avito + Cian) - Monitoring Mode",
+    description="Сервис мониторинга недвижимости (Avito + Cian) - Monitoring Mode",
     version="2.0.0",  # Phase 2
     lifespan=lifespan
 )
@@ -336,6 +340,42 @@ async def stop_parsing(task_id: str):
         message="Запрос на остановку отправлен",
         stopped_at=datetime.now(timezone.utc)
     )
+
+
+class ProxyUpdateRequest(BaseModel):
+    proxy_string: str
+    proxy_change_url: str
+
+
+@app.get("/config/proxy")
+async def get_proxy_config():
+    """Получить текущие настройки прокси из config.toml"""
+    from load_config import get_proxy_config
+    return get_proxy_config()
+
+
+@app.post("/config/proxy")
+async def update_proxy_config(request: ProxyUpdateRequest):
+    """Обновить настройки прокси (proxy_string и proxy_change_url) в config.toml для Avito и Cian"""
+    from load_config import save_proxy_config
+    try:
+        save_proxy_config(request.proxy_string, request.proxy_change_url)
+        logger.info(f"Настройки прокси обновлены: {request.proxy_string[:20]}...")
+        return {"status": "ok", "message": "Настройки прокси обновлены"}
+    except Exception as e:
+        logger.error(f"Ошибка обновления прокси: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/restart")
+async def restart_service():
+    """Перезапустить сервис — Docker поднимет его заново с обновлёнными настройками"""
+    async def _shutdown():
+        await asyncio.sleep(0.5)  # Дать время на отправку ответа
+        logger.info("Получена команда перезапуска от администратора. Завершение процесса...")
+        os.kill(os.getpid(), signal.SIGTERM)
+    asyncio.create_task(_shutdown())
+    return {"status": "restarting", "message": "Сервис перезапускается..."}
 
 
 @app.exception_handler(Exception)

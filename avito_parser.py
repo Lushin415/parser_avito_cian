@@ -54,24 +54,24 @@ class AvitoParse:
     def start(self):
         """Запуск парсера с учётом режима"""
         if self.config.one_time_start:
-            logger.info("Режим: разовый парсинг")
+            logger.info("Режим: разовый мониторинга")
             self.parse()
-            logger.info("Парсинг завершён (one_time_start=True)")
+            logger.info("Мониторинг завершён (one_time_start=True)")
             return
 
         logger.info("Режим: непрерывный мониторинг")
         while True:
             if self.stop_event and self.stop_event.is_set():
-                logger.info("Парсинг остановлен пользователем")
+                logger.info("Мониторинг остановлен пользователем")
                 break
 
             try:
                 self.parse()
-                logger.info(f"Парсинг завершён. Пауза {self.config.pause_general} сек")
+                logger.info(f"Мониторинг завершён. Пауза {self.config.pause_general} сек")
 
                 for _ in range(self.config.pause_general):
                     if self.stop_event and self.stop_event.is_set():
-                        logger.info("Парсинг остановлен во время паузы")
+                        logger.info("Мониторинг остановлен во время паузы")
                         return
                     time.sleep(1)
 

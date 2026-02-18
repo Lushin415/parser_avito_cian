@@ -215,6 +215,7 @@ class CookieManager:
 
         client = PlaywrightClient(
             browser=self.browser,
+            proxy=self._proxy,
             user_agent=USER_AGENT,
         )
 

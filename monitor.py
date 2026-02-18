@@ -331,7 +331,7 @@ class AvitoMonitor(BaseMonitor):
             cookies, user_agent = await cookie_manager.get_cookies("avito", proxy=self.proxy)
 
             if not cookies:
-                logger.warning(f"Avito: нет валидных cookies, пропускаю {url}")
+                logger.warning("Avito: cookies не получены — пропуск без ошибки")
                 return
 
             # 2. Fetch HTML (sync операция в async context)
@@ -349,7 +349,7 @@ class AvitoMonitor(BaseMonitor):
 
             if not html:
                 logger.warning(f"Avito: не удалось получить HTML для {url}")
-                monitoring_state.increment_error(task_id, "Failed to fetch HTML")
+                monitoring_state.increment_error(task_id, "fetch_html_failed")
                 return
 
             self.total_requests += 1
@@ -470,11 +470,11 @@ class AvitoMonitor(BaseMonitor):
             ignore_promotion=user_config.get("ignore_promotion", False)
         )
 
-        # Переконфигурируем parser
-        parser = AvitoParse(config=config)
+        # Переконфигурируем существующий parser (Option B)
+        self.parser.config = config
 
         # Вызываем filter_ads
-        return parser.filter_ads(items)
+        return self.parser.filter_ads(items)
 
     def _is_viewed(self, ad: Item, user_id: int) -> bool:
         """Проверка просмотрено ли объявление для конкретного пользователя"""
@@ -573,7 +573,7 @@ class CianMonitor(BaseMonitor):
 
             if not html:
                 logger.warning(f"Cian: не удалось получить HTML для {url}")
-                monitoring_state.increment_error(task_id, "Failed to fetch HTML")
+                monitoring_state.increment_error(task_id, "fetch_html_failed")
                 return
 
             self.total_requests += 1

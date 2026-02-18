@@ -61,4 +61,5 @@ def log_config(config, version: str):
     Безопасно логирует конфигурацию, скрывая чувствительные данные.
     """
     safe_config_str = mask_sensitive_data(str(config))
-    logger.info(f"Запуск AvitoParse v{version} с настройками:\n{safe_config_str}")
+    parser_name = type(config).__name__.replace("Config", "Parse")
+    logger.info(f"Запуск {parser_name} v{version} с настройками:\n{safe_config_str}")

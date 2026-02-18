@@ -28,7 +28,7 @@ class ParseRequest(BaseModel):
     user_id: int = Field(..., description="ID пользователя в Telegram")
     avito_url: Optional[HttpUrl] = Field(None, description="Ссылка Avito с фильтрами")
     cian_url: Optional[HttpUrl] = Field(None, description="Ссылка Cian с фильтрами")
-    pages: int = Field(3, ge=1, le=100, description="Количество страниц для парсинга")
+    pages: int = Field(3, ge=1, le=100, description="Количество страниц для мониторинга")
 
     # Уведомления в СВОЙ бот пользователя
     notification_bot_token: str = Field(..., description="Токен бота для уведомлений")
@@ -75,7 +75,7 @@ class StartParseResponse(BaseModel):
     """Ответ на запуск парсинга"""
     task_id: str
     status: TaskStatus
-    message: str = "Парсинг запущен"
+    message: str = "Мониторинг запущен"
     started_at: datetime
 
 
@@ -83,7 +83,7 @@ class StopParseResponse(BaseModel):
     """Ответ на остановку парсинга"""
     task_id: str
     status: TaskStatus
-    message: str = "Парсинг остановлен"
+    message: str = "Мониторинг остановлен"
     stopped_at: datetime
 
 

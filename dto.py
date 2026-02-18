@@ -44,6 +44,8 @@ class AvitoConfig:
     parse_views: bool = False
     save_xlsx: bool = True
     use_webdriver: bool = True
+    admin_bot_token: Optional[str] = None
+    admin_user_ids: List[str] = field(default_factory=list)
 
 
 @dataclass

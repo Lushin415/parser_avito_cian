@@ -130,8 +130,8 @@ class SendAdToTg:
             parts.append(address_text.strip())
 
         # Продавец
-        if seller:
-            parts.append(f"👤 {seller}")
+        # if seller:
+        #     parts.append(f"👤 {seller}")
 
         message = "\n".join(parts)
         return message
