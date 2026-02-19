@@ -169,6 +169,12 @@ class MonitoringStateManager:
                 )
                 """
             )
+            # Migration: добавляем колонки если их нет
+            for col_def in ["last_check REAL", "notifications_sent INTEGER DEFAULT 0"]:
+                try:
+                    conn.execute(f"ALTER TABLE monitored_urls ADD COLUMN {col_def}")
+                except sqlite3.OperationalError:
+                    pass  # Колонка уже существует
             conn.commit()
 
     def _restore_from_db(self):
@@ -176,7 +182,8 @@ class MonitoringStateManager:
         with sqlite3.connect(self._db_name) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT task_id, url, platform, user_id, config, status, started_at, registered_at "
+                "SELECT task_id, url, platform, user_id, config, status, started_at, registered_at, "
+                "last_check, notifications_sent "
                 "FROM monitored_urls WHERE status IN ('active', 'paused')"
             )
             rows = cursor.fetchall()
@@ -185,7 +192,7 @@ class MonitoringStateManager:
             return
 
         for row in rows:
-            task_id, url, platform, user_id, config_json, status, started_at, registered_at = row
+            task_id, url, platform, user_id, config_json, status, started_at, registered_at, last_check_ts, notifications_sent = row
             try:
                 config = json.loads(config_json)
             except json.JSONDecodeError:
@@ -202,8 +209,9 @@ class MonitoringStateManager:
                 "status": status,
                 "registered_at": datetime.fromtimestamp(registered_at, tz=timezone.utc),
                 "started_at": started_at,
-                "last_check": None,
-                "last_error": None
+                "last_check": datetime.fromtimestamp(last_check_ts, tz=timezone.utc) if last_check_ts else None,
+                "last_error": None,
+                "notifications_sent": notifications_sent or 0,
             }
 
         self._metrics["total_registered"] = len(self._monitored_urls)
@@ -242,6 +250,18 @@ class MonitoringStateManager:
                 conn.commit()
         except Exception as e:
             logger.error(f"Ошибка удаления из БД: {e}")
+
+    def _db_update_check_stats(self, task_id: str, last_check_ts: float, notifications_sent: int):
+        """Обновление статистики проверки в БД"""
+        try:
+            with sqlite3.connect(self._db_name) as conn:
+                conn.execute(
+                    "UPDATE monitored_urls SET last_check = ?, notifications_sent = ? WHERE task_id = ?",
+                    (last_check_ts, notifications_sent, task_id)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Ошибка обновления статистики в БД: {e}")
 
     def _db_update_status(self, task_id: str, status: str):
         """Обновление статуса в БД"""
@@ -291,7 +311,8 @@ class MonitoringStateManager:
                 "registered_at": datetime.now(timezone.utc),
                 "started_at": time.time(),  # unix timestamp для фильтрации объявлений
                 "last_check": None,
-                "last_error": None
+                "last_error": None,
+                "notifications_sent": 0,
             }
             self._monitored_urls[task_id] = url_data
             self._metrics["total_registered"] += 1
@@ -352,16 +373,20 @@ class MonitoringStateManager:
                 if url_data["status"] == "active"
             ]
 
-    def increment_error(self, task_id: str, error_msg: str = None):
+    def increment_error(self, task_id: str, error_msg: str = None) -> Optional[dict]:
         """
         Увеличить счётчик ошибок для URL
 
-        После 5 последовательных ошибок - пауза URL
+        После 5 последовательных ошибок - пауза URL.
+
+        Returns:
+            Снимок url_data если задача только что приостановлена, иначе None.
+            Используется вызывающим кодом для отправки уведомления.
         """
-        paused = False
+        paused_snapshot = None
         with self._lock:
             if task_id not in self._monitored_urls:
-                return
+                return None
 
             url_data = self._monitored_urls[task_id]
             url_data["error_count"] += 1
@@ -378,20 +403,30 @@ class MonitoringStateManager:
             # Паузим после 5 ошибок
             if url_data["error_count"] >= 5:
                 url_data["status"] = "paused"
-                paused = True
+                paused_snapshot = url_data.copy()
                 logger.warning(
                     f"URL {url_data['url']} приостановлен после 5 ошибок"
                 )
 
-        if paused:
+        if paused_snapshot:
             self._db_update_status(task_id, "paused")
 
-    def reset_error_count(self, task_id: str):
-        """Сброс счётчика ошибок (после успешного запроса)"""
+        return paused_snapshot
+
+    def record_check(self, task_id: str, new_items_count: int = 0):
+        """Запись результата успешной проверки: сброс ошибок, обновление статистики"""
+        last_check_ts = None
+        notif_count = None
         with self._lock:
-            if task_id in self._monitored_urls:
-                self._monitored_urls[task_id]["error_count"] = 0
-                self._monitored_urls[task_id]["last_check"] = datetime.now(timezone.utc)
+            if task_id not in self._monitored_urls:
+                return
+            url_data = self._monitored_urls[task_id]
+            url_data["error_count"] = 0
+            url_data["last_check"] = datetime.now(timezone.utc)
+            url_data["notifications_sent"] = url_data.get("notifications_sent", 0) + new_items_count
+            last_check_ts = url_data["last_check"].timestamp()
+            notif_count = url_data["notifications_sent"]
+        self._db_update_check_stats(task_id, last_check_ts, notif_count)
 
     def pause_url(self, task_id: str):
         """Приостановка мониторинга URL"""

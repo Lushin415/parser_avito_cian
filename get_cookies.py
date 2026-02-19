@@ -1,5 +1,6 @@
 import asyncio
 import random
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -191,7 +192,8 @@ class PlaywrightClient:
         """Уведомить администраторов о сбое прокси через Telegram API"""
         try:
             import tomllib as _tomllib
-            with open("config.toml", "rb") as _f:
+            _config_path = Path(__file__).parent / "config.toml"
+            with open(_config_path, "rb") as _f:
                 _cfg = _tomllib.load(_f)
             admin_bot_token = _cfg.get("avito", {}).get("admin_bot_token", "")
             admin_user_ids = _cfg.get("avito", {}).get("admin_user_ids", [])
@@ -261,6 +263,7 @@ class PlaywrightClient:
                         logger.warning(
                             "IP изменён, но прокси не отвечает — возможно истекла подписка"
                         )
+                        await self._notify_admin_proxy_failure()
 
                 except Exception as e:
                     logger.error(e)

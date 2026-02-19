@@ -32,7 +32,8 @@ class ParseRequest(BaseModel):
 
     # Уведомления в СВОЙ бот пользователя
     notification_bot_token: str = Field(..., description="Токен бота для уведомлений")
-    notification_chat_id: int = Field(..., description="Chat ID для уведомлений")
+    notification_chat_id: int = Field(..., description="Chat ID для уведомлений об объявлениях")
+    pause_notification_chat_id: Optional[int] = Field(None, description="Chat ID для уведомлений о паузе (IP-блок). Если не задан — шлём тому же chat_id")
 
     class Config:
         json_schema_extra = {

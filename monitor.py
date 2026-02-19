@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from curl_cffi import requests
 from loguru import logger
 
+import httpx
+
 from cookie_manager import cookie_manager
 from avito_parser import AvitoParse
 from cian_parser import CianParser
@@ -26,6 +28,85 @@ from db_service import SQLiteDBHandler
 from dto import AvitoConfig, CianConfig
 from models import Item
 from cian_models import CianItem
+from proxy_manager import proxy_manager
+
+
+async def _send_block_notification(platform: str, active_count: int, cooldown: int, url_list: List[dict]):
+    """Одно уведомление администратору об IP-блокировке (не per-task, а глобальное)"""
+    # Берём конфиг из первой задачи с pause_chat_id
+    cfg = next(
+        (u["config"] for u in url_list if u.get("config", {}).get("tg_token") and u.get("config", {}).get("pause_chat_id")),
+        None
+    )
+    if not cfg:
+        logger.warning(f"{platform.upper()}: IP-блок, но нет конфига для уведомления")
+        return
+
+    tg_token = cfg["tg_token"]
+    chat_id = cfg["pause_chat_id"]
+    cooldown_min = cooldown // 60
+
+    text = (
+        f"⛔ <b>IP-блокировка {platform.upper()}</b>\n\n"
+        f"Сервис получил 403/429 от площадки.\n"
+        f"Мониторинг приостановлен на <b>{cooldown_min} мин.</b>\n"
+        f"Активных задач: <b>{active_count}</b>\n\n"
+        f"<i>Возобновится автоматически после cooldown.</i>"
+    )
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.post(
+                f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+            )
+            response.raise_for_status()
+            logger.info(f"{platform.upper()}: уведомление об IP-блоке отправлено → chat_id={chat_id}")
+        except Exception as e:
+            logger.error(f"{platform.upper()}: ошибка отправки IP-блок уведомления: {e}")
+
+
+async def _send_pause_notification(url_data: dict):
+    """Отправляет уведомление о приостановке задачи (5 реальных ошибок, не IP-блок) — пользователю"""
+    config = url_data.get("config", {})
+    tg_token = config.get("tg_token")
+    chat_ids = config.get("tg_chat_id", [])
+    task_id = url_data["task_id"]
+
+    if not tg_token or not chat_ids:
+        logger.warning(f"Нет tg_token/chat_id для уведомления о паузе {task_id}")
+        return
+
+    text = (
+        "⚠️ <b>Мониторинг недвижимости приостановлен</b>\n\n"
+        "5 ошибок подряд — возможно, проблемы с сетью или прокси.\n\n"
+        f"<b>Task ID:</b> <code>{task_id}</code>\n\n"
+        "Используйте кнопки для управления:"
+    )
+
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": "▶️ Возобновить", "callback_data": f"resume_realty_task_{task_id}"},
+            {"text": "🗑 Остановить", "callback_data": f"stop_realty_task_{task_id}"},
+        ]]
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for chat_id in chat_ids:
+            try:
+                response = await client.post(
+                    f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text": text,
+                        "parse_mode": "HTML",
+                        "reply_markup": reply_markup,
+                    }
+                )
+                response.raise_for_status()
+                logger.info(f"Уведомление о паузе отправлено: {task_id} → chat_id={chat_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления о паузе {task_id}: {e}")
 
 
 @dataclass
@@ -62,10 +143,9 @@ class BaseMonitor:
         self.pause_between_requests = (5, 10)  # мин/макс секунд между URL
         self.pause_between_cycles = 30  # секунд между полными циклами
 
-        # Защита от бана: при 403/429 увеличиваем паузу между циклами
+        # Локальный флаг блокировки текущего цикла (403/429).
+        # Управление паузой и ротацией IP — в proxy_manager.
         self._block_detected = False
-        self._block_cooldown = 300  # 5 минут при блокировке
-        self._consecutive_blocks = 0  # счётчик подряд блокировок
 
         # Очистка БД раз в сутки
         self._last_cleanup = 0
@@ -181,15 +261,11 @@ class BaseMonitor:
 
                     # Пауза между циклами
                     if self._block_detected:
-                        self._consecutive_blocks += 1
-                        cooldown = min(self._block_cooldown * self._consecutive_blocks, 1800)
-                        logger.warning(
-                            f"{self.platform} Monitor: блокировка #{self._consecutive_blocks}, "
-                            f"увеличенная пауза {cooldown}с"
-                        )
-                        await asyncio.sleep(cooldown)
+                        # Делегируем ротацию IP и управление паузой в proxy_manager.
+                        # handle_block() заблокирует ВСЕ воркеры обоих мониторов
+                        # до завершения ротации + cooldown.
+                        await proxy_manager.handle_block(self.platform, monitored_urls)
                     else:
-                        self._consecutive_blocks = 0
                         logger.info(
                             f"{self.platform} Monitor: пауза {self.pause_between_cycles}с до следующего цикла"
                         )
@@ -218,9 +294,17 @@ class BaseMonitor:
             while True:
                 url_data = await self._url_queue.get()
                 try:
-                    if self._block_detected or not self.running:
-                        # При блокировке — пропускаем
-                        self._url_queue.task_done()
+                    if not self.running:
+                        continue
+
+                    if self._block_detected:
+                        # Собственный монитор обнаружил блок — дренируем очередь быстро,
+                        # не делая HTTP-запросов. Ротация запустится в _monitor_loop.
+                        continue
+
+                    # Ждём, если другой монитор уже запустил ротацию/cooldown.
+                    # Также возвращает False при FAILED — пропускаем запрос.
+                    if not await proxy_manager.wait_if_not_ready():
                         continue
 
                     await self._process_url(url_data, session)
@@ -235,9 +319,11 @@ class BaseMonitor:
                     logger.error(
                         f"{self.platform} W-{worker_id}: ошибка {url_data['url']}: {e}"
                     )
-                    monitoring_state.increment_error(
+                    paused_snapshot = monitoring_state.increment_error(
                         url_data['task_id'], error_msg=str(e)
                     )
+                    if paused_snapshot:
+                        asyncio.create_task(_send_pause_notification(paused_snapshot))
                     self.total_errors += 1
                 finally:
                     self._url_queue.task_done()
@@ -266,8 +352,8 @@ class BaseMonitor:
             "total_errors": self.total_errors,
             "last_cycle_time": self.last_cycle_time,
             "active_urls": len(monitoring_state.get_urls_for_platform(self.platform)),
-            "consecutive_blocks": self._consecutive_blocks,
             "block_detected": self._block_detected,
+            "proxy": proxy_manager.get_status(),
         }
 
 
@@ -297,6 +383,9 @@ class AvitoMonitor(BaseMonitor):
         else:
             self.proxy = None
             logger.info("Avito Monitor: работаем без прокси")
+
+        # Передаём прокси в ProxyManager (оба монитора используют один и тот же прокси)
+        proxy_manager.configure(self.proxy)
 
         # Тайминги из config.toml (5-10с между запросами, 30с между циклами)
         self.pause_between_requests = (
@@ -348,8 +437,11 @@ class AvitoMonitor(BaseMonitor):
             )
 
             if not html:
-                logger.warning(f"Avito: не удалось получить HTML для {url}")
-                monitoring_state.increment_error(task_id, "fetch_html_failed")
+                if not self._block_detected:
+                    # Реальная ошибка конкретной задачи (5xx, timeout) — считаем per-task
+                    logger.warning(f"Avito: не удалось получить HTML для {url}")
+                    monitoring_state.increment_error(task_id, "fetch_html_failed")
+                # IP-блок (403/429) — обрабатывается глобально в _monitor_loop, не per-task
                 return
 
             self.total_requests += 1
@@ -360,7 +452,7 @@ class AvitoMonitor(BaseMonitor):
 
             if not catalog.get("items"):
                 logger.debug(f"Avito: нет объявлений на {url}")
-                monitoring_state.reset_error_count(task_id)
+                monitoring_state.record_check(task_id)
                 return
 
             # Парсинг items
@@ -418,8 +510,8 @@ class AvitoMonitor(BaseMonitor):
             if new_items:
                 self.db_handler.add_record_from_page(new_items, user_id=user_id)
 
-            # Сброс счётчика ошибок при успехе
-            monitoring_state.reset_error_count(task_id)
+            # Запись результата проверки при успехе
+            monitoring_state.record_check(task_id, len(new_items))
 
         except Exception as e:
             logger.error(f"Avito: ошибка обработки {url}: {e}")
@@ -522,6 +614,10 @@ class CianMonitor(BaseMonitor):
             self.proxy = None
             logger.info("Cian Monitor: работаем без прокси")
 
+        # CianMonitor не вызывает proxy_manager.configure() повторно —
+        # AvitoMonitor инициализируется первым и уже настроил прокси.
+        # Оба монитора используют один и тот же физический прокси.
+
         # Тайминги из config.toml (5-10с между запросами, 30с между циклами)
         self.pause_between_requests = (
             max(base_config.pause_between_links, 5),
@@ -572,8 +668,11 @@ class CianMonitor(BaseMonitor):
             )
 
             if not html:
-                logger.warning(f"Cian: не удалось получить HTML для {url}")
-                monitoring_state.increment_error(task_id, "fetch_html_failed")
+                if not self._block_detected:
+                    # Реальная ошибка конкретной задачи (5xx, timeout) — считаем per-task
+                    logger.warning(f"Cian: не удалось получить HTML для {url}")
+                    monitoring_state.increment_error(task_id, "fetch_html_failed")
+                # IP-блок (403/429) — обрабатывается глобально в _monitor_loop, не per-task
                 return
 
             self.total_requests += 1
@@ -584,7 +683,7 @@ class CianMonitor(BaseMonitor):
             logger.info(f"Cian: найдено {len(items)} объявлений на {url}")
 
             if not items:
-                monitoring_state.reset_error_count(task_id)
+                monitoring_state.record_check(task_id)
                 return
 
             # 4. Фильтрация
@@ -617,8 +716,8 @@ class CianMonitor(BaseMonitor):
             if new_items:
                 self._save_to_db(new_items, user_id=user_id)
 
-            # Сброс ошибок
-            monitoring_state.reset_error_count(task_id)
+            # Запись результата проверки при успехе
+            monitoring_state.record_check(task_id, len(new_items))
 
         except Exception as e:
             logger.error(f"Cian: ошибка обработки {url}: {e}")

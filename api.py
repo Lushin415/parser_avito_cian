@@ -156,6 +156,7 @@ async def start_parsing(request: ParseRequest):
     user_config = {
         "tg_token": request.notification_bot_token,
         "tg_chat_id": [str(request.notification_chat_id)],
+        "pause_chat_id": str(request.pause_notification_chat_id or request.notification_chat_id),
         "min_price": 0,  # TODO: добавить в ParseRequest
         "max_price": 999_999_999,
         "keys_word_white_list": [],
@@ -254,9 +255,9 @@ async def get_status(task_id: str):
             user_id=url_data["user_id"],
             status=status_map.get(url_data["status"], TaskStatus.MONITORING),
             progress=TaskProgress(
-                source=source,  # Теперь это SourceType enum
-                current_page=1,  # Всегда 1 в режиме мониторинга
-                found_ads=0,
+                source=source,
+                current_page=1,
+                found_ads=url_data.get("notifications_sent", 0),
                 filtered_ads=0
             ),
             started_at=url_data["registered_at"],
@@ -340,6 +341,39 @@ async def stop_parsing(task_id: str):
         message="Запрос на остановку отправлен",
         stopped_at=datetime.now(timezone.utc)
     )
+
+
+@app.post("/parse/resume/{task_id}")
+async def resume_parsing(task_id: str):
+    """
+    Phase 2: Возобновить приостановленный мониторинг
+
+    Сбрасывает счётчик ошибок и возвращает URL в активный мониторинг.
+
+    - **task_id**: ID задачи (должна быть в статусе paused)
+    """
+    url_data = monitoring_state.get_url_data(task_id)
+
+    if not url_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Задача {task_id} не найдена"
+        )
+
+    if url_data["status"] != "paused":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Задача не приостановлена (статус: {url_data['status']})"
+        )
+
+    monitoring_state.resume_url(task_id)
+    logger.info(f"Мониторинг возобновлён: {task_id} ({url_data['url']})")
+
+    return {
+        "task_id": task_id,
+        "status": "active",
+        "message": "Мониторинг возобновлён"
+    }
 
 
 class ProxyUpdateRequest(BaseModel):
