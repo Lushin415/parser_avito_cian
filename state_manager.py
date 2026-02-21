@@ -184,7 +184,7 @@ class MonitoringStateManager:
             cursor.execute(
                 "SELECT task_id, url, platform, user_id, config, status, started_at, registered_at, "
                 "last_check, notifications_sent "
-                "FROM monitored_urls WHERE status IN ('active', 'paused')"
+                "FROM monitored_urls WHERE status IN ('active', 'suspended')"
             )
             rows = cursor.fetchall()
 
@@ -199,6 +199,8 @@ class MonitoringStateManager:
                 logger.error(f"Ошибка парсинга config для {task_id}, пропускаю")
                 continue
 
+            # При восстановлении всегда ставим 'active' — задачи были paused из-за рестарта,
+            # а не из-за ошибок. Мониторы берут только 'active' задачи.
             self._monitored_urls[task_id] = {
                 "task_id": task_id,
                 "url": url,
@@ -206,7 +208,7 @@ class MonitoringStateManager:
                 "user_id": user_id,
                 "config": config,
                 "error_count": 0,
-                "status": status,
+                "status": "active",
                 "registered_at": datetime.fromtimestamp(registered_at, tz=timezone.utc),
                 "started_at": started_at,
                 "last_check": datetime.fromtimestamp(last_check_ts, tz=timezone.utc) if last_check_ts else None,
@@ -214,8 +216,13 @@ class MonitoringStateManager:
                 "notifications_sent": notifications_sent or 0,
             }
 
+        # Переводим 'suspended' → 'active' в БД (только graceful-shutdown задачи, не error-paused)
+        with sqlite3.connect(self._db_name) as conn:
+            conn.execute("UPDATE monitored_urls SET status = 'active' WHERE status = 'suspended'")
+            conn.commit()
+
         self._metrics["total_registered"] = len(self._monitored_urls)
-        logger.info(f"Восстановлено {len(self._monitored_urls)} URL из БД")
+        logger.info(f"Восстановлено {len(self._monitored_urls)} URL из БД (suspended → active)")
 
     def _db_save(self, url_data: dict):
         """Сохранение URL в БД"""
@@ -480,7 +487,8 @@ class MonitoringStateManager:
         Остановка всех активных задач (graceful shutdown)
 
         Вызывается при остановке сервиса для корректного обновления
-        статусов всех задач в БД.
+        статусов всех задач в БД. Пишет 'suspended' — отдельный статус
+        для рестарта, чтобы не смешивать с 'paused' (ошибки).
         """
         with self._lock:
             active_tasks = [
@@ -488,12 +496,12 @@ class MonitoringStateManager:
                 if data["status"] in ("active", "paused")
             ]
 
-        # Обновляем статусы в БД (вне lock)
-        # Пишем 'paused' вместо 'stopped' — чтобы _restore_from_db() восстановил их после рестарта
+        # 'suspended' — остановлено из-за рестарта, восстановится автоматически.
+        # 'paused' — остановлено из-за ошибок, не трогаем.
         for task_id in active_tasks:
-            self._db_update_status(task_id, "paused")
+            self._db_update_status(task_id, "suspended")
 
-        logger.info(f"🛑 Graceful shutdown: приостановлено {len(active_tasks)} задач (восстановятся после рестарта)")
+        logger.info(f"🛑 Graceful shutdown: {len(active_tasks)} задач переведено в 'suspended' (восстановятся после рестарта)")
         return len(active_tasks)
 
 

@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
     # Сначала обновляем статусы всех задач в БД (graceful shutdown)
     logger.info("Обновление статусов задач в БД...")
     stopped_count = monitoring_state.stop_all_tasks()
-    logger.info(f"✅ Обновлено {stopped_count} задач в статус 'stopped'")
+    logger.info(f"✅ Обновлено {stopped_count} задач в статус 'suspended' (восстановятся после рестарта)")
 
     logger.info("Остановка мониторов...")
     await avito_monitor.stop()
