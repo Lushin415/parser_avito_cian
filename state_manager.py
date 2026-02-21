@@ -489,10 +489,11 @@ class MonitoringStateManager:
             ]
 
         # Обновляем статусы в БД (вне lock)
+        # Пишем 'paused' вместо 'stopped' — чтобы _restore_from_db() восстановил их после рестарта
         for task_id in active_tasks:
-            self._db_update_status(task_id, "stopped")
+            self._db_update_status(task_id, "paused")
 
-        logger.info(f"🛑 Graceful shutdown: остановлено {len(active_tasks)} задач")
+        logger.info(f"🛑 Graceful shutdown: приостановлено {len(active_tasks)} задач (восстановятся после рестарта)")
         return len(active_tasks)
 
 
