@@ -34,8 +34,18 @@ class SendAdToTg:
                 return None
 
             def get_largest_image_url(img):
+                # Фильтруем только ключи формата "WxH" — Avito иногда добавляет
+                # нестандартные ключи типа "catalog", которые ломают int()
+                valid_keys = [
+                    k for k in img.root.keys()
+                    if "x" in k
+                    and k.split("x")[0].isdigit()
+                    and k.split("x")[1].isdigit()
+                ]
+                if not valid_keys:
+                    return str(next(iter(img.root.values())))
                 best_key = max(
-                    img.root.keys(),
+                    valid_keys,
                     key=lambda k: int(k.split("x")[0]) * int(k.split("x")[1])
                 )
                 return str(img.root[best_key])
