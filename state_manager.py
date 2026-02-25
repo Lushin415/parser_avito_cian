@@ -170,7 +170,7 @@ class MonitoringStateManager:
                 """
             )
             # Migration: добавляем колонки если их нет
-            for col_def in ["last_check REAL", "notifications_sent INTEGER DEFAULT 0"]:
+            for col_def in ["last_check REAL", "notifications_sent INTEGER DEFAULT 0", "linked_task_id TEXT"]:
                 try:
                     conn.execute(f"ALTER TABLE monitored_urls ADD COLUMN {col_def}")
                 except sqlite3.OperationalError:
@@ -183,7 +183,7 @@ class MonitoringStateManager:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT task_id, url, platform, user_id, config, status, started_at, registered_at, "
-                "last_check, notifications_sent "
+                "last_check, notifications_sent, linked_task_id "
                 "FROM monitored_urls WHERE status IN ('active', 'suspended')"
             )
             rows = cursor.fetchall()
@@ -192,7 +192,7 @@ class MonitoringStateManager:
             return
 
         for row in rows:
-            task_id, url, platform, user_id, config_json, status, started_at, registered_at, last_check_ts, notifications_sent = row
+            task_id, url, platform, user_id, config_json, status, started_at, registered_at, last_check_ts, notifications_sent, linked_task_id = row
             try:
                 config = json.loads(config_json)
             except json.JSONDecodeError:
@@ -214,6 +214,7 @@ class MonitoringStateManager:
                 "last_check": datetime.fromtimestamp(last_check_ts, tz=timezone.utc) if last_check_ts else None,
                 "last_error": None,
                 "notifications_sent": notifications_sent or 0,
+                "linked_task_id": linked_task_id,
             }
 
         # Переводим 'suspended' → 'active' в БД (только graceful-shutdown задачи, не error-paused)
@@ -231,8 +232,8 @@ class MonitoringStateManager:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO monitored_urls
-                    (task_id, url, platform, user_id, config, status, started_at, registered_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (task_id, url, platform, user_id, config, status, started_at, registered_at, linked_task_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         url_data["task_id"],
@@ -243,6 +244,7 @@ class MonitoringStateManager:
                         url_data["status"],
                         url_data["started_at"],
                         url_data["registered_at"].timestamp(),
+                        url_data.get("linked_task_id"),
                     )
                 )
                 conn.commit()
@@ -320,6 +322,7 @@ class MonitoringStateManager:
                 "last_check": None,
                 "last_error": None,
                 "notifications_sent": 0,
+                "linked_task_id": None,
             }
             self._monitored_urls[task_id] = url_data
             self._metrics["total_registered"] += 1
@@ -347,6 +350,29 @@ class MonitoringStateManager:
 
         self._db_delete(task_id)
         return True
+
+    def update_linked_tasks(self, task_id1: str, task_id2: str):
+        """Устанавливает взаимную связь между двумя задачами (авито ↔ циан)"""
+        with self._lock:
+            if task_id1 in self._monitored_urls:
+                self._monitored_urls[task_id1]["linked_task_id"] = task_id2
+            if task_id2 in self._monitored_urls:
+                self._monitored_urls[task_id2]["linked_task_id"] = task_id1
+
+        # Сохраняем в БД
+        try:
+            with sqlite3.connect(self._db_name) as conn:
+                conn.execute(
+                    "UPDATE monitored_urls SET linked_task_id = ? WHERE task_id = ?",
+                    (task_id2, task_id1)
+                )
+                conn.execute(
+                    "UPDATE monitored_urls SET linked_task_id = ? WHERE task_id = ?",
+                    (task_id1, task_id2)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Ошибка сохранения linked_task_id: {e}")
 
     def get_url_data(self, task_id: str) -> Optional[dict]:
         """Получение данных URL"""
