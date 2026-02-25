@@ -169,6 +169,8 @@ async def start_parsing(request: ParseRequest):
     }
 
     registered_tasks = []
+    avito_task_id = None
+    cian_task_id = None
 
     # Регистрация Avito URL
     if request.avito_url:
@@ -215,6 +217,11 @@ async def start_parsing(request: ParseRequest):
             status_code=500,
             detail="Не удалось зарегистрировать ни один URL"
         )
+
+    # Связываем задачи авито и циан — при остановке одной остановится и другая
+    if avito_task_id and cian_task_id:
+        monitoring_state.update_linked_tasks(avito_task_id, cian_task_id)
+        logger.info(f"Связаны задачи: {avito_task_id} ↔ {cian_task_id}")
 
     # Возвращаем первый task_id (для обратной совместимости)
     # В реальности зарегистрировано может быть 2 task_id (avito + cian)
@@ -290,7 +297,15 @@ async def stop_parsing(task_id: str):
     url_data = monitoring_state.get_url_data(task_id)
 
     if url_data:
-        # Phase 2: удаление из мониторинга
+        # Если есть связанная задача (авито ↔ циан) — останавливаем и её
+        linked_task_id = url_data.get("linked_task_id")
+        if linked_task_id:
+            linked_data = monitoring_state.get_url_data(linked_task_id)
+            if linked_data:
+                monitoring_state.unregister_url(linked_task_id)
+                logger.info(f"Остановлена связанная задача: {linked_task_id} ({linked_data['platform']})")
+
+        # Phase 2: удаление из мониторинга основной задачи
         success = monitoring_state.unregister_url(task_id)
 
         if not success:

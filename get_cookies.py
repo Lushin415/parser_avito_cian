@@ -13,7 +13,7 @@ from playwright_setup import ensure_playwright_installed
 
 MAX_RETRIES = 3
 RETRY_DELAY = 10
-RETRY_DELAY_WITHOUT_PROXY = 300
+RETRY_DELAY_WITHOUT_PROXY = 1200
 BAD_IP_TITLE = "проблема с ip"
 
 
@@ -204,7 +204,7 @@ class PlaywrightClient:
 
             message = (
                 "⚠️ <b>Прокси недоступен!</b>\n\n"
-                "Все попытки смены IP исчерпаны.\n"
+                "Все попытки смены IP исчерпаны. Следующая проверка через 20 минут.\n"
                 "Парсер продолжает работу <b>без прокси</b>.\n\n"
                 "Обновите настройки прокси в панели администратора."
             )
