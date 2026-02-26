@@ -232,12 +232,43 @@ class CookieManager:
     # ------------------------------------------------
 
     async def _background_refresh(self):
+        # Счётчик минут для принудительного рестарта браузера раз в сутки
+        minutes_count = 0
+
         while True:
             try:
                 await asyncio.sleep(60)
+                minutes_count += 1
 
                 if not self.browser:
                     continue
+
+                # Раз в сутки (1440 минут) принудительно перезапускаем браузер
+                # для очистки RAM и папки /tmp.
+                # Вызываем _stop_browser не можем (он пытается отменить текущую задачу),
+                # поэтому закрываем компоненты напрямую и выходим из цикла через break.
+                # При следующем get_cookies → acquire() → _start_browser() создаст
+                # новую задачу _background_refresh с minutes_count = 0.
+                if minutes_count >= 1440:
+                    async with self._browser_lock:
+                        # Перезапускаем только если браузер сейчас не используется
+                        if self._clients > 0:
+                            logger.info(
+                                f"Плановый перезапуск Chromium отложен: "
+                                f"браузер занят ({self._clients} клиент(ов))"
+                            )
+                            minutes_count = 1439  # Проверим снова через минуту
+                            continue
+                        logger.info("Принудительный плановый перезапуск Chromium для очистки памяти и /tmp...")
+                        if self.browser:
+                            await self.browser.close()
+                            self.browser = None
+                        if self.playwright_context:
+                            await self.playwright_context.__aexit__(None, None, None)
+                            self.playwright_context = None
+                        self._refresh_task = None  # Позволит _start_browser создать новую задачу
+                    logger.info("Браузер остановлен (плановый перезапуск)")
+                    break  # Выходим; браузер и задача пересоздадутся при следующем get_cookies
 
                 for platform in list(self._cache.keys()):
                     age = time.time() - self._cache[platform].timestamp

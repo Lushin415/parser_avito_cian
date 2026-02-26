@@ -67,6 +67,7 @@ class ProxyManager:
         self._state = ProxyState.ACTIVE
         self._consecutive_failures = 0
         self._proxy: Optional[Proxy] = None
+        self._no_proxy_block_count: int = 0  # счётчик блокировок без прокси
 
         logger.info("ProxyManager инициализирован")
 
@@ -117,11 +118,13 @@ class ProxyManager:
         """
         # Прокси не настроен — пауза без счётчика провалов, мониторинг продолжится
         if not self._proxy:
+            self._no_proxy_block_count += 1
             logger.warning(
                 f"{platform.upper()}: IP заблокирован, прокси не настроен — "
-                f"пауза {NO_PROXY_PAUSE}с, мониторинг продолжится"
+                f"пауза {NO_PROXY_PAUSE}с, мониторинг продолжится "
+                f"(блокировок за сессию: {self._no_proxy_block_count})"
             )
-            await self._notify_no_proxy(url_list)
+            await self._notify_no_proxy(platform, url_list, self._no_proxy_block_count)
             await asyncio.sleep(NO_PROXY_PAUSE)
             return
 
@@ -321,8 +324,8 @@ class ProxyManager:
             logger.error(f"ProxyManager: ошибка парсинга proxy_string: {e}")
             return None
 
-    async def _notify_no_proxy(self, url_list: list) -> None:
-        """Уведомить администратора: IP заблокирован, но прокси не настроен."""
+    async def _notify_no_proxy(self, platform: str, url_list: list, block_count: int) -> None:
+        """Уведомить администратора: IP заблокирован, прокси не настроен (информационно)."""
         cfg = next(
             (
                 u["config"]
@@ -336,11 +339,13 @@ class ProxyManager:
             logger.warning("ProxyManager: нет конфига для уведомления (no proxy)")
             return
 
+        pause_min = NO_PROXY_PAUSE // 60
         text = (
-            "⚠️ <b>Прокси недоступен!</b>\n\n"
-            "Все попытки смены IP исчерпаны.\n"
-            f"Парсер продолжает работу <b>без прокси</b> (пауза {NO_PROXY_PAUSE}с).\n\n"
-            "Обновите настройки прокси в панели администратора."
+            f"🟡 <b>IP заблокирован — {platform.upper()}</b>\n\n"
+            f"Площадка вернула 403/429. Прокси не настроен.\n"
+            f"Мониторинг <b>автоматически возобновится через {pause_min} мин.</b>\n\n"
+            f"📊 Блокировок за текущую сессию: <b>{block_count}</b>\n\n"
+            f"<i>Если блокировки частые — рассмотрите подключение мобильного прокси.</i>"
         )
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:

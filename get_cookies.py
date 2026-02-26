@@ -1,9 +1,6 @@
 import asyncio
-import random
-from pathlib import Path
 from typing import Optional
 
-import httpx
 from loguru import logger
 from playwright.async_api import async_playwright, Browser
 from playwright_stealth import Stealth
@@ -11,9 +8,6 @@ from playwright_stealth import Stealth
 from dto import Proxy, ProxySplit
 from playwright_setup import ensure_playwright_installed
 
-MAX_RETRIES = 3
-RETRY_DELAY = 10
-RETRY_DELAY_WITHOUT_PROXY = 1200
 BAD_IP_TITLE = "проблема с ip"
 
 
@@ -133,8 +127,10 @@ class PlaywrightClient:
         try:
             await self.page.goto(url, timeout=60_000, wait_until="commit")
         except Exception as e:
-            logger.warning(f"goto timeout → смена IP: {e}")
-            await self.change_ip()
+            logger.warning(f"goto timeout → делегируем смену IP в ProxyManager: {e}")
+            from proxy_manager import proxy_manager
+            platform = "avito" if "avito" in url else "cian"
+            await proxy_manager.handle_block(platform, [])
             await self.page.goto(url, timeout=60_000, wait_until="commit")
 
         for _ in range(6):
@@ -181,103 +177,12 @@ class PlaywrightClient:
         title = await self.page.title()
 
         if BAD_IP_TITLE in title.lower():
-            logger.warning("IP заблокирован")
-
+            logger.warning("IP заблокирован в Playwright → делегируем в ProxyManager")
             await self.context.clear_cookies()
-            await self.change_ip()
-
+            from proxy_manager import proxy_manager
+            platform = "avito" if "avito" in self.page.url else "cian"
+            await proxy_manager.handle_block(platform, [])
             await self.page.reload(timeout=60_000, wait_until="commit")
-
-    async def _notify_admin_proxy_failure(self):
-        """Уведомить администраторов о сбое прокси через Telegram API"""
-        try:
-            import tomllib as _tomllib
-            _config_path = Path(__file__).parent / "config.toml"
-            with open(_config_path, "rb") as _f:
-                _cfg = _tomllib.load(_f)
-            admin_bot_token = _cfg.get("avito", {}).get("admin_bot_token", "")
-            admin_user_ids = _cfg.get("avito", {}).get("admin_user_ids", [])
-
-            if not admin_bot_token or not admin_user_ids:
-                logger.warning("Настройки администратора не заданы — уведомление не отправлено")
-                return
-
-            message = (
-                "⚠️ <b>Прокси недоступен!</b>\n\n"
-                "Все попытки смены IP исчерпаны. Следующая проверка через 20 минут.\n"
-                "Парсер продолжает работу <b>без прокси</b>.\n\n"
-                "Обновите настройки прокси в панели администратора."
-            )
-
-            async with httpx.AsyncClient(timeout=10) as client:
-                for user_id in admin_user_ids:
-                    try:
-                        await client.post(
-                            f"https://api.telegram.org/bot{admin_bot_token}/sendMessage",
-                            json={"chat_id": user_id, "text": message, "parse_mode": "HTML"},
-                        )
-                        logger.info(f"Уведомление о сбое прокси отправлено администратору {user_id}")
-                    except Exception as e:
-                        logger.error(f"Не удалось отправить уведомление администратору {user_id}: {e}")
-        except Exception as e:
-            logger.error(f"Ошибка при отправке уведомления администратору: {e}")
-
-    async def _check_proxy_alive(self) -> bool:
-        """Проверить реальную доступность прокси через тестовый HTTP-запрос"""
-        if not self.proxy_split_obj:
-            return False
-        try:
-            proxy_url = self.proxy_split_obj.ip_port  # уже содержит http://
-            async with httpx.AsyncClient(
-                proxy=proxy_url,
-                auth=(self.proxy_split_obj.login, self.proxy_split_obj.password),
-                timeout=10,
-            ) as client:
-                r = await client.get("http://api.ipify.org")
-                return r.status_code == 200
-        except Exception as e:
-            logger.warning(f"Прокси не отвечает на тестовый запрос: {e}")
-            return False
-
-    async def change_ip(self, retries: int = MAX_RETRIES):
-        if not self.proxy_split_obj:
-            logger.warning("Прокси не настроен — пауза перед повтором")
-            await asyncio.sleep(180)
-            return False
-
-        async with httpx.AsyncClient(timeout=20) as client:
-            for attempt in range(1, retries + 1):
-                try:
-                    r = await client.get(
-                        self.proxy_split_obj.change_ip_link + "&format=json"
-                    )
-
-                    if r.status_code == 200:
-                        new_ip = r.json().get("new_ip")
-                        logger.info(f"IP изменён: {new_ip}")
-
-                        # Проверяем что прокси реально работает (подписка не истекла)
-                        if await self._check_proxy_alive():
-                            return True
-
-                        logger.warning(
-                            "IP изменён, но прокси не отвечает — возможно истекла подписка"
-                        )
-                        await self._notify_admin_proxy_failure()
-
-                except Exception as e:
-                    logger.error(e)
-
-                await asyncio.sleep(RETRY_DELAY)
-
-        # Все попытки исчерпаны — уведомляем администратора
-        logger.critical("⚠️ Все попытки смены IP исчерпаны! Администратор уведомлён.")
-        await self._notify_admin_proxy_failure()
-
-        self.proxy_split_obj = None
-        self.proxy = None
-
-        return False
 
     # ---------------- STEALTH ---------------- #
 
