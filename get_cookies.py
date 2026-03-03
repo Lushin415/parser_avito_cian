@@ -51,21 +51,30 @@ class PlaywrightClient:
             return None
 
         try:
-            self.proxy.proxy_string = self.del_protocol(self.proxy.proxy_string)
+            # Работаем с локальной копией — не мутируем self.proxy.proxy_string,
+            # чтобы повторные вызовы get_proxy_obj() возвращали корректный результат
+            proxy_str = self.proxy.proxy_string
+            protocol = "http://"
+            for p in ("socks5://", "socks4://", "https://", "http://"):
+                if proxy_str.lower().startswith(p):
+                    protocol = p
+                    break
 
-            if "@" in self.proxy.proxy_string:
-                ip_port, user_pass = self.proxy.proxy_string.split("@")
+            proxy_str = self.del_protocol(proxy_str)
+
+            if "@" in proxy_str:
+                ip_port, user_pass = proxy_str.split("@")
                 if "." in user_pass:
                     ip_port, user_pass = user_pass, ip_port
                 login, password = user_pass.split(":")
             else:
-                login, password, ip, port = self.proxy.proxy_string.split(":")
+                login, password, ip, port = proxy_str.split(":")
                 if "." in login:
                     login, password, ip, port = ip, port, login, password
                 ip_port = f"{ip}:{port}"
 
             return ProxySplit(
-                ip_port=self.check_protocol(ip_port),
+                ip_port=f"{protocol}{ip_port}",
                 login=login,
                 password=password,
                 change_ip_link=self.proxy.change_ip_link,

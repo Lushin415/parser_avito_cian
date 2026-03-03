@@ -172,7 +172,9 @@ class BaseMonitor:
         logger.info(f"Запуск {self.platform} Monitor...")
 
         # Запуск браузера для cookies (передаём прокси если есть)
-        # await cookie_manager.start(proxy=proxy)
+        if proxy:
+            cookie_manager._proxy = proxy
+        await cookie_manager.acquire()
 
         # Создание asyncio task
         self.task = asyncio.create_task(self._monitor_loop())
@@ -193,9 +195,8 @@ class BaseMonitor:
             except asyncio.CancelledError:
                 pass
 
-        # Остановка браузера
-        #await cookie_manager.stop()
-
+        # Освобождение браузера
+        await cookie_manager.release()
 
         logger.success(f"{self.platform} Monitor остановлен")
 
@@ -361,7 +362,7 @@ class AvitoMonitor(BaseMonitor):
     """Монитор для Avito"""
 
     def __init__(self):
-        super().__init__("avito")
+        super().__init__("avito", num_workers=1)
 
         # Загрузка базового конфига (для прокси и технических настроек)
         from load_config import load_avito_config
@@ -411,42 +412,29 @@ class AvitoMonitor(BaseMonitor):
         user_id = url_data['user_id']
         task_id = url_data['task_id']
         user_config = url_data['config']
-        session = session or self.sessions[0]
-
         logger.debug(f"Avito: обработка {url} (user={user_id})")
 
         try:
-            # 1. Получение cookies и User-Agent
-            cookies, user_agent = await cookie_manager.get_cookies("avito", proxy=self.proxy)
-
-            if not cookies:
-                logger.warning("Avito: cookies не получены — пропуск без ошибки")
-                return
-
-            # 2. Fetch HTML (sync операция в async context)
-            from common_data import HEADERS
-            headers = HEADERS.copy()
-            headers["user-agent"] = user_agent
-
-            html = await asyncio.to_thread(
-                self._fetch_html,
-                session,
-                url,
-                cookies,
-                headers
-            )
-
-            if not html:
-                if not self._block_detected:
-                    # Реальная ошибка конкретной задачи (5xx, timeout) — считаем per-task
-                    logger.warning(f"Avito: не удалось получить HTML для {url}")
-                    monitoring_state.increment_error(task_id, "fetch_html_failed")
-                # IP-блок (403/429) — обрабатывается глобально в _monitor_loop, не per-task
+            # 1. Получение HTML через изолированный контекст Playwright
+            try:
+                html = await cookie_manager.get_html(url)
+                if not html:
+                    if not self._block_detected:
+                        logger.warning(f"Avito: не удалось получить HTML для {url}")
+                        monitoring_state.increment_error(task_id, "fetch_html_empty")
+                    return
+            except Exception as e:
+                if "IP_BLOCK" in str(e):
+                    logger.warning(f"Avito: обнаружена блокировка (IP_BLOCK) для {url}")
+                    self._block_detected = True
+                    return
+                logger.error(f"Avito: ошибка загрузки {url}: {e}")
+                monitoring_state.increment_error(task_id, str(e))
                 return
 
             self.total_requests += 1
 
-            # 3. Парсинг JSON из HTML (@staticmethod, без экземпляра)
+            # 2. Парсинг JSON из HTML (@staticmethod, без экземпляра)
             data = AvitoParse.find_json_on_page(html)
             catalog = data.get("data", {}).get("catalog") or {}
 
@@ -517,32 +505,6 @@ class AvitoMonitor(BaseMonitor):
             logger.error(f"Avito: ошибка обработки {url}: {e}")
             monitoring_state.increment_error(task_id, str(e))
             raise
-
-    def _fetch_html(self, session: requests.Session, url: str, cookies: dict, headers: dict) -> Optional[str]:
-        """Синхронная загрузка HTML (вызывается через asyncio.to_thread)"""
-        try:
-            response = session.get(
-                url=url,
-                headers=headers,
-                cookies=cookies,
-                impersonate="chrome",
-                timeout=20,
-                #verify=False
-            )
-
-            if response.status_code == 200:
-                return response.text
-            elif response.status_code in [403, 429]:
-                logger.warning(f"Avito: блокировка {response.status_code}")
-                self._block_detected = True
-                return None
-            else:
-                logger.warning(f"Avito: status {response.status_code}")
-                return None
-
-        except Exception as e:
-            logger.error(f"Avito: fetch error: {e}")
-            return None
 
     async def _filter_items(self, items: List[Item], user_config: dict) -> List[Item]:
         """Фильтрация объявлений (Option B: переконфигурируем parser)"""

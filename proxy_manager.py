@@ -278,7 +278,7 @@ class ProxyManager:
                 auth=(proxy_split.login, proxy_split.password),
                 timeout=10,
             ) as client:
-                r = await client.get("http://api.ipify.org")
+                r = await client.get("https://www.google.com")
                 return r.status_code == 200
         except Exception as e:
             logger.warning(f"ProxyManager: прокси не отвечает: {e}")
@@ -297,6 +297,12 @@ class ProxyManager:
             return None
         try:
             proxy_str = self._proxy.proxy_string
+            # Сохраняем протокол до его удаления
+            protocol = "http://"
+            for p in ("socks5://", "socks4://", "https://", "http://"):
+                if proxy_str.lower().startswith(p):
+                    protocol = p
+                    break
             if "//" in proxy_str:
                 proxy_str = proxy_str.split("//")[1]
 
@@ -311,8 +317,7 @@ class ProxyManager:
                     login, password, ip, port = ip, port, login, password
                 ip_port = f"{ip}:{port}"
 
-            if "http://" not in ip_port:
-                ip_port = f"http://{ip_port}"
+            ip_port = f"{protocol}{ip_port}"
 
             return ProxySplit(
                 ip_port=ip_port,
