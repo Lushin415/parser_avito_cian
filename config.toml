@@ -13,7 +13,7 @@ vk_user_id = []
 # urls = []  # Передаются от ParserHub
 
 # Количество страниц - задаётся через API
-count = 3  # Default, переопределяется через API
+count = 1  # Default, переопределяется через API
 
 # Фильтры
 keys_word_white_list = []
@@ -24,8 +24,8 @@ min_price = 0
 geo = ""
 
 # Технические настройки
-proxy_string = "socks5://eH1nes:ZarUS7CUu5SA@bproxy.site:13983"
-proxy_change_url = "https://changeip.mobileproxy.space/?proxy_key=dddeaeffa1a1f00e3b4f34bd821a13cf"
+proxy_string = ""
+proxy_change_url = ""
 pause_general = 20
 pause_between_links = 2
 max_age = 0

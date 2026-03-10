@@ -148,11 +148,13 @@ class PlaywrightClient:
 
             await self.check_block()
 
-            raw_cookie = await self.page.evaluate("() => document.cookie")
-            cookie_dict = self.parse_cookie_string(raw_cookie)
+            # context.cookies() возвращает ВСЕ cookies включая HttpOnly,
+            # которые document.cookie не видит (а Авито именно их использует)
+            all_cookies = await self.context.cookies()
+            cookie_dict = {c["name"]: c["value"] for c in all_cookies}
 
             if cookie_dict:
-                logger.info("Cookies получены")
+                logger.info(f"Cookies получены: {len(cookie_dict)} шт.")
                 return cookie_dict
 
             await asyncio.sleep(5)

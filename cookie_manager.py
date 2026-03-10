@@ -66,7 +66,6 @@ class CookieManager:
 
         self._fetch_cooldown: dict = {}
         self._cooldown_duration = 30
-        self._bridge_server = None
 
         self.avito_cookie_file = Path("cookies.json")
         self.cian_cookie_file = Path("cookies_cian.json")
@@ -115,24 +114,11 @@ class CookieManager:
             proxy_data = PlaywrightClient(proxy=self._proxy).proxy_split_obj
 
             if proxy_data:
-                if proxy_data.ip_port.startswith(("socks5://", "socks4://")):
-                    # Chromium не поддерживает SOCKS5 с авторизацией —
-                    # запускаем локальный мост HTTP→SOCKS5
-                    from proxy_bridge import start_bridge, LOCAL_PORT
-                    host_port = proxy_data.ip_port.split("://", 1)[1]
-                    socks_host, socks_port = host_port.rsplit(":", 1)
-                    self._bridge_server = await start_bridge(
-                        socks_host, int(socks_port),
-                        proxy_data.login, proxy_data.password,
-                        local_port=LOCAL_PORT,
-                    )
-                    launch_args["proxy"] = {"server": f"http://127.0.0.1:{LOCAL_PORT}"}
-                else:
-                    launch_args["proxy"] = {
-                        "server": proxy_data.ip_port,
-                        "username": proxy_data.login,
-                        "password": proxy_data.password,
-                    }
+                launch_args["proxy"] = {
+                    "server": proxy_data.ip_port,
+                    "username": proxy_data.login,
+                    "password": proxy_data.password,
+                }
 
         self.browser = await playwright.chromium.launch(**launch_args)
 
@@ -157,11 +143,6 @@ class CookieManager:
         if self.playwright_context:
             await self.playwright_context.__aexit__(None, None, None)
             self.playwright_context = None
-
-        if self._bridge_server:
-            self._bridge_server.close()
-            await self._bridge_server.wait_closed()
-            self._bridge_server = None
 
         logger.info("Браузер остановлен")
 
@@ -220,59 +201,6 @@ class CookieManager:
 
             finally:
                 await self.release()
-
-    # ------------------------------------------------
-
-    async def get_html(self, url: str) -> Optional[str]:
-        """
-        Получает HTML через изолированный инкогнито-контекст Playwright.
-        Захватывает ссылку на browser под _browser_lock для защиты от race condition
-        при плановом рестарте браузера (_background_refresh).
-        """
-        async with self._browser_lock:
-            if not self.browser:
-                await self._start_browser()
-            # Захватываем локальную ссылку, пока держим лок
-            browser_instance = self.browser
-
-        context = None
-        try:
-            context = await browser_instance.new_context(user_agent=USER_AGENT)
-
-            # Блокируем тяжёлые ресурсы для скорости
-            await context.route(
-                "**/*",
-                lambda route: (
-                    route.abort()
-                    if route.request.resource_type in ["image", "stylesheet", "font", "media"]
-                    else route.continue_()
-                ),
-            )
-
-            page = await context.new_page()
-            from get_cookies import PlaywrightClient
-            await PlaywrightClient._stealth(page)
-
-            response = await page.goto(url, timeout=60000, wait_until="commit")
-            title = await page.title()
-
-            if (
-                "проблема с ip" in title.lower()
-                or "докажите, что вы человек" in title.lower()
-                or (response and response.status in [403, 429])
-            ):
-                raise Exception("IP_BLOCK")
-
-            return await page.content()
-
-        except Exception as e:
-            if "IP_BLOCK" in str(e):
-                raise
-            logger.error(f"Playwright get_html error: {e}")
-            return None
-        finally:
-            if context:
-                await context.close()
 
     # ------------------------------------------------
 
@@ -376,8 +304,11 @@ class CookieManager:
             "timestamp": time.time(),
         }
 
-        with open(path, "w") as f:
-            json.dump(data, f)
+        try:
+            with open(path, "w") as f:
+                json.dump(data, f)
+        except PermissionError:
+            logger.warning(f"Нет прав записи в {path} — cookies сохранены только в памяти")
 
     async def _load_from_disk(self, platform: str) -> Tuple[dict, str]:
         path = (

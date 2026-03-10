@@ -3,19 +3,19 @@ Monitor - система мониторинга Avito/Cian вместо per-user
 
 Архитектура:
 - AvitoMonitor и CianMonitor работают как asyncio tasks
-- Один curl_cffi.Session на платформу (shared)
+- httpx.AsyncClient для HTTP запросов (без curl_cffi)
 - Последовательный polling всех пользовательских URL
 - Задержка 5-15 сек между запросами = built-in rate limiting
-- Cookies через CookieManager (Phase 1)
+- Cookies через CookieManager (Playwright)
 - Фильтрация через Option B (shared parser instance, reconfig before each URL)
 """
 import asyncio
 import random
 import time
-from typing import List, Dict, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 
-from curl_cffi import requests
+from curl_cffi import requests as cffi_requests
 from loguru import logger
 
 import httpx
@@ -131,11 +131,8 @@ class BaseMonitor:
         self.running = False
         self.task: Optional[asyncio.Task] = None
 
-        # Воркеры: каждый со своей curl_cffi сессией
+        # Воркеры (httpx.AsyncClient создаётся per-request — не нужны сессии)
         self.num_workers = num_workers
-        self.sessions: List[requests.Session] = [
-            requests.Session() for _ in range(num_workers)
-        ]
         self._url_queue: Optional[asyncio.Queue] = None
         self._worker_tasks: List[asyncio.Task] = []
 
@@ -209,7 +206,7 @@ class BaseMonitor:
         # Запуск воркеров
         self._worker_tasks = []
         for i in range(self.num_workers):
-            task = asyncio.create_task(self._worker(i, self.sessions[i]))
+            task = asyncio.create_task(self._worker(i))
             self._worker_tasks.append(task)
         logger.info(f"{self.platform} Monitor: запущено {self.num_workers} воркеров")
 
@@ -287,7 +284,7 @@ class BaseMonitor:
             await asyncio.gather(*self._worker_tasks, return_exceptions=True)
             logger.info(f"{self.platform} Monitor: основной цикл завершён")
 
-    async def _worker(self, worker_id: int, session: requests.Session):
+    async def _worker(self, worker_id: int):
         """Воркер: берёт URL из очереди, обрабатывает, ждёт паузу"""
         logger.debug(f"{self.platform} Worker-{worker_id}: запущен")
 
@@ -308,7 +305,7 @@ class BaseMonitor:
                     if not await proxy_manager.wait_if_not_ready():
                         continue
 
-                    await self._process_url(url_data, session)
+                    await self._process_url(url_data)
 
                     # Пауза между запросами (rate limiting)
                     min_delay, max_delay = self.pause_between_requests
@@ -332,15 +329,49 @@ class BaseMonitor:
         except asyncio.CancelledError:
             logger.debug(f"{self.platform} Worker-{worker_id}: остановлен")
 
-    async def _process_url(self, url_data: dict, session: requests.Session = None):
-        """
-        Обработка одного URL (должен быть переопределён в подклассах)
-
-        Args:
-            url_data: Словарь с данными URL из monitoring_state
-            session: curl_cffi сессия воркера
-        """
+    async def _process_url(self, url_data: dict):
+        """Обработка одного URL (переопределяется в подклассах)"""
         raise NotImplementedError
+
+    def _build_proxy_url(self) -> Optional[str]:
+        """Формирует URL прокси для httpx"""
+        proxy_split = proxy_manager._parse_proxy()
+        if not proxy_split:
+            return None
+        proto, host_port = proxy_split.ip_port.split("://", 1)
+        return f"{proto}://{proxy_split.login}:{proxy_split.password}@{host_port}"
+
+    async def _fetch_html(self, url: str, cookies: dict, proxy_url: str = None) -> Optional[str]:
+        """Загрузка HTML через curl_cffi (Chrome TLS fingerprint)"""
+        try:
+            proxy_dict = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+            response = await asyncio.to_thread(
+                self._fetch_html_sync, url, cookies, proxy_dict
+            )
+            return response
+        except Exception as e:
+            logger.error(f"{self.platform}: fetch error: {e}")
+            return None
+
+    def _fetch_html_sync(self, url: str, cookies: dict, proxy_dict: dict = None) -> Optional[str]:
+        session = cffi_requests.Session()
+        response = session.get(
+            url=url,
+            cookies=cookies,
+            proxies=proxy_dict,
+            impersonate="chrome",
+            timeout=20,
+            allow_redirects=False,
+        )
+        if response.status_code == 200:
+            return response.text
+        elif response.status_code in (302, 403, 429):
+            logger.warning(f"{self.platform}: блокировка {response.status_code}")
+            self._block_detected = True
+            return None
+        else:
+            logger.warning(f"{self.platform}: HTTP {response.status_code}")
+            return None
 
     def get_metrics(self) -> dict:
         """Получение метрик мониторинга"""
@@ -406,7 +437,7 @@ class AvitoMonitor(BaseMonitor):
         """Запуск мониторинга (переопределяем чтобы передать прокси)"""
         await super().start(proxy=self.proxy)
 
-    async def _process_url(self, url_data: dict, session: requests.Session = None):
+    async def _process_url(self, url_data: dict):
         """Обработка одного Avito URL"""
         url = url_data['url']
         user_id = url_data['user_id']
@@ -415,26 +446,26 @@ class AvitoMonitor(BaseMonitor):
         logger.debug(f"Avito: обработка {url} (user={user_id})")
 
         try:
-            # 1. Получение HTML через изолированный контекст Playwright
-            try:
-                html = await cookie_manager.get_html(url)
-                if not html:
-                    if not self._block_detected:
-                        logger.warning(f"Avito: не удалось получить HTML для {url}")
-                        monitoring_state.increment_error(task_id, "fetch_html_empty")
-                    return
-            except Exception as e:
-                if "IP_BLOCK" in str(e):
-                    logger.warning(f"Avito: обнаружена блокировка (IP_BLOCK) для {url}")
-                    self._block_detected = True
-                    return
-                logger.error(f"Avito: ошибка загрузки {url}: {e}")
-                monitoring_state.increment_error(task_id, str(e))
+            # 1. Получение cookies (Playwright)
+            cookies, _ = await cookie_manager.get_cookies("avito", proxy=self.proxy)
+
+            if not cookies:
+                logger.warning("Avito: cookies не получены — пропуск без ошибки")
+                return
+
+            # 2. Fetch HTML через httpx
+            html = await self._fetch_html(url, cookies, self._build_proxy_url())
+
+            if not html:
+                if not self._block_detected:
+                    logger.warning(f"Avito: не удалось получить HTML для {url}")
+                    monitoring_state.increment_error(task_id, "fetch_html_failed")
+                # IP-блок (302/403/429) — обрабатывается глобально в _monitor_loop
                 return
 
             self.total_requests += 1
 
-            # 2. Парсинг JSON из HTML (@staticmethod, без экземпляра)
+            # 3. Парсинг JSON из HTML (@staticmethod, без экземпляра)
             data = AvitoParse.find_json_on_page(html)
             catalog = data.get("data", {}).get("catalog") or {}
 
@@ -598,36 +629,25 @@ class CianMonitor(BaseMonitor):
         """Запуск мониторинга (переопределяем чтобы передать прокси)"""
         await super().start(proxy=self.proxy)
 
-    async def _process_url(self, url_data: dict, session: requests.Session = None):
+    async def _process_url(self, url_data: dict):
         """Обработка одного Cian URL"""
         url = url_data['url']
         user_id = url_data['user_id']
         task_id = url_data['task_id']
         user_config = url_data['config']
-        session = session or self.sessions[0]
 
         logger.debug(f"Cian: обработка {url} (user={user_id})")
 
         try:
-            # 1. Получение cookies
-            cookies, user_agent = await cookie_manager.get_cookies("cian", proxy=self.proxy)
+            # 1. Получение cookies (Playwright)
+            cookies, _ = await cookie_manager.get_cookies("cian", proxy=self.proxy)
 
             if not cookies:
                 logger.warning(f"Cian: нет валидных cookies, пропускаю {url}")
                 return
 
-            # 2. Fetch HTML
-            from common_data import HEADERS
-            headers = HEADERS.copy()
-            headers["user-agent"] = user_agent
-
-            html = await asyncio.to_thread(
-                self._fetch_html,
-                session,
-                url,
-                cookies,
-                headers
-            )
+            # 2. Fetch HTML через httpx
+            html = await self._fetch_html(url, cookies, self._build_proxy_url())
 
             if not html:
                 if not self._block_detected:
@@ -685,32 +705,6 @@ class CianMonitor(BaseMonitor):
             logger.error(f"Cian: ошибка обработки {url}: {e}")
             monitoring_state.increment_error(task_id, str(e))
             raise
-
-    def _fetch_html(self, session: requests.Session, url: str, cookies: dict, headers: dict) -> Optional[str]:
-        """Синхронная загрузка HTML"""
-        try:
-            response = session.get(
-                url=url,
-                headers=headers,
-                cookies=cookies,
-                impersonate="chrome",
-                timeout=20,
-                #verify=False
-            )
-
-            if response.status_code == 200:
-                return response.text
-            elif response.status_code in [403, 429]:
-                logger.warning(f"Cian: блокировка {response.status_code}")
-                self._block_detected = True
-                return None
-            else:
-                logger.warning(f"Cian: status {response.status_code}")
-                return None
-
-        except Exception as e:
-            logger.error(f"Cian: fetch error: {e}")
-            return None
 
     async def _filter_items(self, items: List[CianItem], user_config: dict) -> List[CianItem]:
         """Фильтрация объявлений"""
