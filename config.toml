@@ -13,7 +13,7 @@ vk_user_id = []
 # urls = []  # Передаются от ParserHub
 
 # Количество страниц - задаётся через API
-count = 3  # Default, переопределяется через API
+count = 1  # Default, переопределяется через API
 
 # Фильтры
 keys_word_white_list = []

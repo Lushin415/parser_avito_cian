@@ -17,6 +17,9 @@ services:
       - ./cookies_cian.json:/app/cookies_cian.json
       # Логи
       - ./logs:/app/logs
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       - TZ=Europe/Moscow
     healthcheck:

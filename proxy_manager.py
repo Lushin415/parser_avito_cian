@@ -231,8 +231,6 @@ class ProxyManager:
             return False
 
         change_url = self._proxy.change_ip_link
-        if "format=json" not in change_url:
-            change_url = change_url + "&format=json"
 
         async with httpx.AsyncClient(timeout=20) as client:
             for attempt in range(1, MAX_ROTATION_ATTEMPTS + 1):
@@ -240,10 +238,17 @@ class ProxyManager:
                     r = await client.get(change_url)
                     if r.status_code == 200:
                         try:
-                            new_ip = r.json().get("new_ip", "unknown")
+                            data = r.json()
+                            success = data.get("success", False)
+                            session = data.get("session", "unknown")
                         except Exception:
-                            new_ip = "unknown"
-                        logger.info(f"ProxyManager: смена IP запрошена → новый IP: {new_ip}")
+                            success, session = False, "unknown"
+                        if not success:
+                            logger.error(f"ProxyManager: попытка {attempt} — провайдер вернул success=false")
+                            if attempt < MAX_ROTATION_ATTEMPTS:
+                                await asyncio.sleep(ROTATION_RETRY_DELAY)
+                            continue
+                        logger.info(f"ProxyManager: смена IP запрошена → сессия: {session}")
 
                         if await self._check_proxy_alive():
                             logger.success("ProxyManager: прокси отвечает после смены IP")
@@ -273,12 +278,13 @@ class ProxyManager:
         if not proxy_split:
             return False
         try:
+            proto, host_port = proxy_split.ip_port.split("://", 1)
+            proxy_url = f"{proto}://{proxy_split.login}:{proxy_split.password}@{host_port}"
             async with httpx.AsyncClient(
-                proxy=proxy_split.ip_port,
-                auth=(proxy_split.login, proxy_split.password),
+                proxy=proxy_url,
                 timeout=10,
             ) as client:
-                r = await client.get("http://api.ipify.org")
+                r = await client.get("https://www.google.com")
                 return r.status_code == 200
         except Exception as e:
             logger.warning(f"ProxyManager: прокси не отвечает: {e}")
@@ -297,6 +303,12 @@ class ProxyManager:
             return None
         try:
             proxy_str = self._proxy.proxy_string
+            # Сохраняем протокол до его удаления
+            protocol = "http://"
+            for p in ("socks5://", "socks4://", "https://", "http://"):
+                if proxy_str.lower().startswith(p):
+                    protocol = p
+                    break
             if "//" in proxy_str:
                 proxy_str = proxy_str.split("//")[1]
 
@@ -311,8 +323,7 @@ class ProxyManager:
                     login, password, ip, port = ip, port, login, password
                 ip_port = f"{ip}:{port}"
 
-            if "http://" not in ip_port:
-                ip_port = f"http://{ip_port}"
+            ip_port = f"{protocol}{ip_port}"
 
             return ProxySplit(
                 ip_port=ip_port,

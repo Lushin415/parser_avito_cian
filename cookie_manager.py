@@ -111,7 +111,7 @@ class CookieManager:
         if self._proxy:
             from get_cookies import PlaywrightClient
 
-            proxy_data = PlaywrightClient(proxy=self._proxy).get_proxy_obj()
+            proxy_data = PlaywrightClient(proxy=self._proxy).proxy_split_obj
 
             if proxy_data:
                 launch_args["proxy"] = {
@@ -304,8 +304,11 @@ class CookieManager:
             "timestamp": time.time(),
         }
 
-        with open(path, "w") as f:
-            json.dump(data, f)
+        try:
+            with open(path, "w") as f:
+                json.dump(data, f)
+        except PermissionError:
+            logger.warning(f"Нет прав записи в {path} — cookies сохранены только в памяти")
 
     async def _load_from_disk(self, platform: str) -> Tuple[dict, str]:
         path = (
